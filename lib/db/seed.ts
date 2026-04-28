@@ -1,4 +1,4 @@
-import { stripe } from '../payments/stripe';
+import { getStripe } from '../payments/stripe';
 import { db } from './drizzle';
 import { users, teams, teamMembers } from './schema';
 import { hashPassword } from '@/lib/auth/session';
@@ -6,12 +6,12 @@ import { hashPassword } from '@/lib/auth/session';
 async function createStripeProducts() {
   console.log('Creating Stripe products and prices...');
 
-  const baseProduct = await stripe.products.create({
+  const baseProduct = await getStripe().products.create({
     name: 'Base',
     description: 'Base subscription plan',
   });
 
-  await stripe.prices.create({
+  await getStripe().prices.create({
     product: baseProduct.id,
     unit_amount: 800, // $8 in cents
     currency: 'usd',
@@ -21,12 +21,12 @@ async function createStripeProducts() {
     },
   });
 
-  const plusProduct = await stripe.products.create({
+  const plusProduct = await getStripe().products.create({
     name: 'Plus',
     description: 'Plus subscription plan',
   });
 
-  await stripe.prices.create({
+  await getStripe().prices.create({
     product: plusProduct.id,
     unit_amount: 1200, // $12 in cents
     currency: 'usd',
