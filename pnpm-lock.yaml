@@ -8,9 +8,6 @@ importers:
 
   .:
     dependencies:
-      '@next/font':
-        specifier: ^14.2.15
-        version: 14.2.15(next@15.6.0-canary.59(react-dom@19.1.0(react@19.1.0))(react@19.1.0))
       '@paralleldrive/cuid2':
         specifier: ^3.3.0
         version: 3.3.0
@@ -713,11 +710,6 @@ packages:
 
   '@next/env@15.6.0-canary.59':
     resolution: {integrity: sha512-D5msVvBiiJrqAW3MPXP4rR7teMeCcMLCK3yTSCGM4XuuzAcO8Eb4RZtbSPS0zgvFKu9r5hv5eaTXlNmgNmZ5TQ==}
-
-  '@next/font@14.2.15':
-    resolution: {integrity: sha512-QopYhBmCDDrNDynbi+ZD1hDZXmQXVFo7TmAFp4DQgO/kogz1OLbQ92hPigJbj572eZ3GaaVxNIyYVn3/eAsehg==}
-    peerDependencies:
-      next: '*'
 
   '@next/swc-darwin-arm64@15.6.0-canary.58':
     resolution: {integrity: sha512-jGawwiKITJHOH8dSbTqfjVvCf+DesljZhtvh9LKCrO+1octLlGyDAbEQw5WEzrXCch5LWrdSqPyKft0/9LeniA==}
@@ -3203,10 +3195,6 @@ snapshots:
     optional: true
 
   '@next/env@15.6.0-canary.59': {}
-
-  '@next/font@14.2.15(next@15.6.0-canary.59(react-dom@19.1.0(react@19.1.0))(react@19.1.0))':
-    dependencies:
-      next: 15.6.0-canary.59(react-dom@19.1.0(react@19.1.0))(react@19.1.0)
 
   '@next/swc-darwin-arm64@15.6.0-canary.58':
     optional: true
