@@ -3,6 +3,7 @@
 import { z } from 'zod';
 import { and, eq, sql } from 'drizzle-orm';
 import { db } from '@/lib/db/drizzle';
+import { sendInvitationEmail } from '@/lib/email/resend';
 import {
   User,
   users,
@@ -437,13 +438,16 @@ export const inviteTeamMember = validatedActionWithUser(
     }
 
     // Create a new invitation
-    await db.insert(invitations).values({
-      teamId: userWithTeam.teamId,
-      email,
-      role,
-      invitedBy: user.id,
-      status: 'pending'
-    });
+    const [invitation] = await db
+      .insert(invitations)
+      .values({
+        teamId: userWithTeam.teamId,
+        email,
+        role,
+        invitedBy: user.id,
+        status: 'pending',
+      })
+      .returning();
 
     await logActivity(
       userWithTeam.teamId,
@@ -451,9 +455,99 @@ export const inviteTeamMember = validatedActionWithUser(
       ActivityType.INVITE_TEAM_MEMBER
     );
 
-    // TODO: Send invitation email and include ?inviteId={id} to sign-up URL
-    // await sendInvitationEmail(email, userWithTeam.team.name, role)
+    // Fetch team name for the email
+    const [team] = await db
+      .select({ name: teams.name })
+      .from(teams)
+      .where(eq(teams.id, userWithTeam.teamId))
+      .limit(1);
+
+    // Send invitation email (non-blocking: log error but don't fail the action)
+    try {
+      await sendInvitationEmail({
+        to: email,
+        teamName: team?.name ?? 'votre équipe',
+        role,
+        inviteId: invitation.id,
+      });
+    } catch (emailError) {
+      console.error('Failed to send invitation email:', emailError);
+      // Invitation is still recorded — user can be resent manually
+    }
 
     return { success: 'Invitation sent successfully' };
+  }
+);
+
+const updateMemberRoleSchema = z.object({
+  memberId: z.number(),
+  role: z.enum(['member', 'owner']),
+});
+
+export const updateMemberRole = validatedActionWithUser(
+  updateMemberRoleSchema,
+  async (data, _, user) => {
+    const { memberId, role } = data;
+    const userWithTeam = await getUserWithTeam(user.id);
+
+    if (!userWithTeam?.teamId) {
+      return { error: 'User is not part of a team' };
+    }
+
+    // Verify the target member belongs to the same team
+    const [target] = await db
+      .select({ id: teamMembers.id, userId: teamMembers.userId })
+      .from(teamMembers)
+      .where(
+        and(
+          eq(teamMembers.id, memberId),
+          eq(teamMembers.teamId, userWithTeam.teamId)
+        )
+      )
+      .limit(1);
+
+    if (!target) {
+      return { error: 'Member not found in your team' };
+    }
+
+    // Prevent changing own role
+    if (target.userId === user.id) {
+      return { error: 'You cannot change your own role' };
+    }
+
+    await db
+      .update(teamMembers)
+      .set({ role })
+      .where(eq(teamMembers.id, memberId));
+
+    return { success: 'Member role updated' };
+  }
+);
+
+const cancelInvitationSchema = z.object({
+  invitationId: z.number(),
+});
+
+export const cancelInvitation = validatedActionWithUser(
+  cancelInvitationSchema,
+  async (data, _, user) => {
+    const { invitationId } = data;
+    const userWithTeam = await getUserWithTeam(user.id);
+
+    if (!userWithTeam?.teamId) {
+      return { error: 'User is not part of a team' };
+    }
+
+    await db
+      .delete(invitations)
+      .where(
+        and(
+          eq(invitations.id, invitationId),
+          eq(invitations.teamId, userWithTeam.teamId),
+          eq(invitations.status, 'pending')
+        )
+      );
+
+    return { success: 'Invitation cancelled' };
   }
 );

@@ -4,7 +4,11 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Button } from '@/components/ui/button';
-import { FolderOpen, Settings, Shield, Menu } from 'lucide-react';
+import { FolderOpen, Settings, Shield, Users, Menu } from 'lucide-react';
+import useSWR from 'swr';
+import type { TeamDataWithMembers, User } from '@/lib/db/schema';
+
+const fetcher = (url: string) => fetch(url).then((res) => res.json());
 
 export default function DashboardLayout({
   children
@@ -13,12 +17,28 @@ export default function DashboardLayout({
 }) {
   const pathname = usePathname();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const { data: user } = useSWR<User>('/api/user', fetcher);
+  const { data: team } = useSWR<TeamDataWithMembers>('/api/team', fetcher);
 
-  const navItems = [
+  // Check if the current user is an owner of the team
+  const currentMember = team?.teamMembers?.find(
+    (m) => m.user && (m.user as { id: number }).id === user?.id
+  );
+  const isOwner = currentMember?.role === 'owner';
+
+  const baseNavItems = [
     { href: '/dashboard', icon: FolderOpen, label: 'Projets' },
     { href: '/dashboard/general', icon: Settings, label: 'Compte' },
     { href: '/dashboard/security', icon: Shield, label: 'Sécurité' },
   ];
+
+  const navItems = isOwner
+    ? [
+        ...baseNavItems.slice(0, 1),
+        { href: '/dashboard/members', icon: Users, label: 'Membres' },
+        ...baseNavItems.slice(1),
+      ]
+    : baseNavItems;
 
   // Active si le pathname correspond exactement ou commence par le href (sauf /dashboard exact)
   function isActive(href: string) {

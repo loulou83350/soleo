@@ -1,6 +1,6 @@
 import { desc, and, eq, isNull } from 'drizzle-orm';
 import { db } from './drizzle';
-import { activityLogs, teamMembers, teams, users } from './schema';
+import { activityLogs, invitations, teamMembers, teams, users } from './schema';
 import { cookies } from 'next/headers';
 import { verifyToken } from '@/lib/auth/session';
 
@@ -127,4 +127,92 @@ export async function getTeamForUser() {
   });
 
   return result?.team || null;
+}
+
+// ─── Members & Invitations ─────────────────────────────────────────────────
+
+export type TeamMemberWithUser = {
+  id: number;
+  role: string;
+  joinedAt: Date;
+  user: { id: number; name: string | null; email: string };
+};
+
+/**
+ * Returns all active members of a team (with user details).
+ * Ordered by join date ascending (oldest first).
+ */
+export async function getTeamMembersWithUsers(
+  teamId: number
+): Promise<TeamMemberWithUser[]> {
+  const rows = await db
+    .select({
+      id: teamMembers.id,
+      role: teamMembers.role,
+      joinedAt: teamMembers.joinedAt,
+      userId: users.id,
+      userName: users.name,
+      userEmail: users.email,
+    })
+    .from(teamMembers)
+    .innerJoin(users, eq(teamMembers.userId, users.id))
+    .where(and(eq(teamMembers.teamId, teamId), isNull(users.deletedAt)))
+    .orderBy(teamMembers.joinedAt);
+
+  return rows.map((r) => ({
+    id: r.id,
+    role: r.role,
+    joinedAt: r.joinedAt,
+    user: { id: r.userId, name: r.userName, email: r.userEmail },
+  }));
+}
+
+export type PendingInvitation = {
+  id: number;
+  email: string;
+  role: string;
+  invitedAt: Date;
+};
+
+/**
+ * Returns all pending invitations for a team.
+ * Ordered by invitation date descending (newest first).
+ */
+export async function getPendingInvitations(
+  teamId: number
+): Promise<PendingInvitation[]> {
+  const rows = await db
+    .select({
+      id: invitations.id,
+      email: invitations.email,
+      role: invitations.role,
+      invitedAt: invitations.invitedAt,
+    })
+    .from(invitations)
+    .where(
+      and(eq(invitations.teamId, teamId), eq(invitations.status, 'pending'))
+    )
+    .orderBy(desc(invitations.invitedAt));
+
+  return rows;
+}
+
+/**
+ * Returns the current user's role in their team.
+ * Returns null if the user is not authenticated or not in a team.
+ */
+export async function getCurrentUserTeamRole(): Promise<{
+  teamId: number;
+  role: string;
+} | null> {
+  const user = await getUser();
+  if (!user) return null;
+
+  const [row] = await db
+    .select({ teamId: teamMembers.teamId, role: teamMembers.role })
+    .from(teamMembers)
+    .where(eq(teamMembers.userId, user.id))
+    .limit(1);
+
+  return row ?? null;
 }
