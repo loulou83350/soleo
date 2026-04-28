@@ -40,6 +40,12 @@ export default function DashboardLayout({
       ]
     : baseNavItems;
 
+  // Builder routes get a full-viewport layout — no sidebar, no max-width container
+  const isBuilderRoute = /\/sessions\/\d+\/builder/.test(pathname);
+  if (isBuilderRoute) {
+    return <>{children}</>;
+  }
+
   // Active si le pathname correspond exactement ou commence par le href (sauf /dashboard exact)
   function isActive(href: string) {
     if (href === '/dashboard') return pathname === '/dashboard' || pathname.startsWith('/dashboard/projects');

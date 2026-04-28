@@ -5,6 +5,8 @@ import {
   text,
   timestamp,
   integer,
+  boolean,
+  jsonb,
 } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
 
@@ -161,3 +163,98 @@ export enum ActivityType {
   INVITE_TEAM_MEMBER = 'INVITE_TEAM_MEMBER',
   ACCEPT_INVITATION = 'ACCEPT_INVITATION',
 }
+
+// ─── Sessions ───────────────────────────────────────────────────────────────
+
+export const sessions = pgTable('sessions', {
+  id: serial('id').primaryKey(),
+  teamId: integer('team_id')
+    .notNull()
+    .references(() => teams.id),
+  projectId: integer('project_id')
+    .notNull()
+    .references(() => projects.id),
+  title: varchar('title', { length: 200 }).notNull().default('Nouvelle session'),
+  status: varchar('status', { length: 20 }).notNull().default('draft'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+});
+
+// ─── Session Pages ──────────────────────────────────────────────────────────
+
+export const sessionPages = pgTable('session_pages', {
+  id: serial('id').primaryKey(),
+  sessionId: integer('session_id')
+    .notNull()
+    .references(() => sessions.id, { onDelete: 'cascade' }),
+  position: integer('position').notNull(),
+  title: varchar('title', { length: 200 }).notNull(),
+  // 'intro' | 'question' | 'end'
+  pageType: varchar('page_type', { length: 20 }).notNull().default('question'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+});
+
+// ─── Session Blocks ─────────────────────────────────────────────────────────
+
+export const sessionBlocks = pgTable('session_blocks', {
+  id: serial('id').primaryKey(),
+  sessionPageId: integer('session_page_id')
+    .notNull()
+    .references(() => sessionPages.id, { onDelete: 'cascade' }),
+  position: integer('position').notNull(),
+  // 'open_text' | 'mcq' | 'likert' | 'rating' | 'nps' | 'ranking' | 'matrix' | 'prototype_task'
+  blockType: varchar('block_type', { length: 30 }).notNull(),
+  config: jsonb('config').notNull().default({}),
+  required: boolean('required').notNull().default(false),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+});
+
+// ─── Session Relations ──────────────────────────────────────────────────────
+
+export const sessionsRelations = relations(sessions, ({ one, many }) => ({
+  team: one(teams, { fields: [sessions.teamId], references: [teams.id] }),
+  project: one(projects, { fields: [sessions.projectId], references: [projects.id] }),
+  pages: many(sessionPages),
+}));
+
+export const sessionPagesRelations = relations(sessionPages, ({ one, many }) => ({
+  session: one(sessions, { fields: [sessionPages.sessionId], references: [sessions.id] }),
+  blocks: many(sessionBlocks),
+}));
+
+export const sessionBlocksRelations = relations(sessionBlocks, ({ one }) => ({
+  page: one(sessionPages, { fields: [sessionBlocks.sessionPageId], references: [sessionPages.id] }),
+}));
+
+// ─── Session Types ──────────────────────────────────────────────────────────
+
+export type Session = typeof sessions.$inferSelect;
+export type NewSession = typeof sessions.$inferInsert;
+export type SessionPage = typeof sessionPages.$inferSelect;
+export type NewSessionPage = typeof sessionPages.$inferInsert;
+export type SessionBlock = typeof sessionBlocks.$inferSelect;
+export type NewSessionBlock = typeof sessionBlocks.$inferInsert;
+
+export type SessionStatus = 'draft' | 'published' | 'archived';
+export type PageType = 'intro' | 'question' | 'end';
+export type BlockType =
+  | 'open_text'
+  | 'mcq'
+  | 'likert'
+  | 'rating'
+  | 'nps'
+  | 'ranking'
+  | 'matrix'
+  | 'prototype_task';
+
+export type BlockConfig = Record<string, unknown>;
+
+export type SessionPageWithBlocks = SessionPage & {
+  blocks: SessionBlock[];
+};
+
+export type SessionWithPages = Session & {
+  pages: SessionPageWithBlocks[];
+};
