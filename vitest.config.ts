@@ -8,6 +8,11 @@ export default defineConfig({
     environment: 'jsdom',
     globals: true,
     setupFiles: ['./vitest.setup.ts'],
+    env: {
+      // Clé de test pour les tests unitaires de lib/auth/session.ts
+      // La variable est évaluée au niveau module ; elle doit être présente au démarrage
+      AUTH_SECRET: 'test-secret-for-unit-tests-at-least-32-chars!!',
+    },
     include: ['**/*.test.{ts,tsx}'],
     exclude: ['node_modules', '.next'],
     coverage: {
