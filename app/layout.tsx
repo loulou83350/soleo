@@ -4,6 +4,7 @@ import { Inter } from 'next/font/google';
 import { getUser, getTeamForUser } from '@/lib/db/queries';
 import { SWRConfig } from 'swr';
 import { Toaster } from 'sonner';
+import { Agentation } from 'agentation';
 
 export const metadata: Metadata = {
   title: 'Soleo — User Research Platform',
@@ -38,6 +39,7 @@ export default function RootLayout({
         >
           {children}
         </SWRConfig>
+        {process.env.NODE_ENV === 'development' && <Agentation />}
         <Toaster
           position="bottom-right"
           toastOptions={{
