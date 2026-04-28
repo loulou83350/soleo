@@ -3,6 +3,7 @@ import type { Metadata, Viewport } from 'next';
 import { Inter } from 'next/font/google';
 import { getUser, getTeamForUser } from '@/lib/db/queries';
 import { SWRConfig } from 'swr';
+import { Toaster } from 'sonner';
 
 export const metadata: Metadata = {
   title: 'Soleo — User Research Platform',
@@ -37,6 +38,17 @@ export default function RootLayout({
         >
           {children}
         </SWRConfig>
+        <Toaster
+          position="bottom-right"
+          toastOptions={{
+            duration: 4000,
+            classNames: {
+              toast: 'bg-surface border border-border text-foreground text-sm',
+              success: 'border-success/30',
+              error: 'border-destructive/30',
+            },
+          }}
+        />
       </body>
     </html>
   );
