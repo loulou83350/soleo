@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
-import { ChevronLeft, Share2, Check, Loader2, Copy, AlertCircle, X } from 'lucide-react';
+import { ChevronLeft, Share2, Check, Loader2, Copy, AlertCircle, X, Eye } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { updateSessionTitleAction, publishSessionAction } from '@/app/(dashboard)/dashboard/projects/[id]/sessions/actions';
@@ -17,6 +17,7 @@ interface BuilderHeaderProps {
   initialTitle: string;
   initialStatus: string;
   initialToken: string | null;
+  onPreview: () => void;
 }
 
 export function BuilderHeader({
@@ -25,6 +26,7 @@ export function BuilderHeader({
   initialTitle,
   initialStatus,
   initialToken,
+  onPreview,
 }: BuilderHeaderProps) {
   const [title, setTitle] = useState(initialTitle);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle');
@@ -161,6 +163,18 @@ export function BuilderHeader({
           <span className="text-destructive">Erreur</span>
         )}
       </div>
+
+      {/* Preview button */}
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={onPreview}
+        className="shrink-0 gap-1.5"
+        aria-label="Prévisualiser la session"
+      >
+        <Eye className="h-4 w-4" />
+        Prévisualiser
+      </Button>
 
       {/* Share / Copy link button */}
       <Button

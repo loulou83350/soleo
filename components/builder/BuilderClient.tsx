@@ -5,6 +5,7 @@ import { BuilderHeader } from './BuilderHeader';
 import { PageList } from './PageList';
 import { Canvas } from './Canvas';
 import { ConfigPanel } from './ConfigPanel';
+import { PreviewModal } from './PreviewModal';
 import type { SessionWithPages, SessionPageWithBlocks, SessionPage, SessionBlock } from '@/lib/db/schema';
 
 interface BuilderClientProps {
@@ -19,6 +20,7 @@ export function BuilderClient({ session, projectId }: BuilderClientProps) {
   const firstPage = pages[0] ?? null;
   const [activePageId, setActivePageId] = useState<number | null>(firstPage?.id ?? null);
   const [selectedBlockId, setSelectedBlockId] = useState<number | null>(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
 
   const activePage = pages.find((p) => p.id === activePageId) ?? null;
 
@@ -121,6 +123,7 @@ export function BuilderClient({ session, projectId }: BuilderClientProps) {
         initialTitle={session.title}
         initialStatus={session.status}
         initialToken={session.sessionToken ?? null}
+        onPreview={() => setPreviewOpen(true)}
       />
 
       {/* Three-panel body */}
@@ -149,6 +152,13 @@ export function BuilderClient({ session, projectId }: BuilderClientProps) {
           onBlockUpdated={handleBlockUpdated}
         />
       </div>
+
+      {previewOpen && (
+        <PreviewModal
+          session={{ ...session, pages }}
+          onClose={() => setPreviewOpen(false)}
+        />
+      )}
     </div>
   );
 }
