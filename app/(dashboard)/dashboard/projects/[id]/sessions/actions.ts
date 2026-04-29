@@ -15,9 +15,14 @@ import {
   UpdateSessionTitleSchema,
   AddPageSchema,
   ReorderPagesSchema,
+  AddBlockSchema,
+  UpdateBlockSchema,
+  DeleteBlockSchema,
 } from '@/lib/validations/sessions';
+import { addBlock, updateBlock, deleteBlock } from '@/lib/repositories/blocks';
+import { uploadBlockAsset } from '@/lib/supabase/storage';
 import type { ActionResult } from '@/lib/domain/types';
-import type { SessionPage } from '@/lib/db/schema';
+import type { SessionPage, SessionBlock } from '@/lib/db/schema';
 
 // ─── Create Session ──────────────────────────────────────────────────────────
 
@@ -134,5 +139,118 @@ export async function reorderPagesAction(
     return { success: true, data: undefined };
   } catch {
     return { success: false, error: 'Impossible de réordonner les pages' };
+  }
+}
+
+// ─── Add Block ───────────────────────────────────────────────────────────────
+
+export async function addBlockAction(
+  sessionId: number,
+  pageId: number,
+  blockType: string
+): Promise<ActionResult<{ block: SessionBlock }>> {
+  const user = await getUser();
+  if (!user) return { success: false, error: 'Non authentifié' };
+
+  const userWithTeam = await getUserWithTeam(user.id);
+  if (!userWithTeam?.teamId) return { success: false, error: 'Aucune équipe trouvée' };
+
+  const parsed = AddBlockSchema.safeParse({ sessionId, pageId, blockType });
+  if (!parsed.success) {
+    return { success: false, error: parsed.error.errors[0]?.message ?? 'Type de bloc invalide' };
+  }
+
+  try {
+    const block = await addBlock(pageId, userWithTeam.teamId, parsed.data.blockType);
+    return { success: true, data: { block } };
+  } catch {
+    return { success: false, error: 'Impossible d\'ajouter le bloc' };
+  }
+}
+
+// ─── Update Block ────────────────────────────────────────────────────────────
+
+export async function updateBlockAction(
+  sessionId: number,
+  blockId: number,
+  updates: { config?: Record<string, unknown>; required?: boolean }
+): Promise<ActionResult<void>> {
+  const user = await getUser();
+  if (!user) return { success: false, error: 'Non authentifié' };
+
+  const userWithTeam = await getUserWithTeam(user.id);
+  if (!userWithTeam?.teamId) return { success: false, error: 'Aucune équipe trouvée' };
+
+  const parsed = UpdateBlockSchema.safeParse({
+    blockId,
+    config: updates.config ?? {},
+    required: updates.required ?? false,
+  });
+  if (!parsed.success) {
+    return { success: false, error: parsed.error.errors[0]?.message ?? 'Données invalides' };
+  }
+
+  try {
+    await updateBlock(blockId, userWithTeam.teamId, updates);
+    return { success: true, data: undefined };
+  } catch {
+    return { success: false, error: 'Impossible de mettre à jour le bloc' };
+  }
+}
+
+// ─── Delete Block ────────────────────────────────────────────────────────────
+
+export async function deleteBlockAction(
+  sessionId: number,
+  blockId: number
+): Promise<ActionResult<void>> {
+  const user = await getUser();
+  if (!user) return { success: false, error: 'Non authentifié' };
+
+  const userWithTeam = await getUserWithTeam(user.id);
+  if (!userWithTeam?.teamId) return { success: false, error: 'Aucune équipe trouvée' };
+
+  const parsed = DeleteBlockSchema.safeParse({ blockId });
+  if (!parsed.success) {
+    return { success: false, error: 'Données invalides' };
+  }
+
+  try {
+    await deleteBlock(blockId, userWithTeam.teamId);
+    return { success: true, data: undefined };
+  } catch {
+    return { success: false, error: 'Impossible de supprimer le bloc' };
+  }
+}
+
+// ─── Upload Block Image ──────────────────────────────────────────────────────
+
+export async function uploadBlockImageAction(
+  sessionId: number,
+  formData: FormData
+): Promise<ActionResult<{ url: string }>> {
+  const user = await getUser();
+  if (!user) return { success: false, error: 'Non authentifié' };
+
+  const userWithTeam = await getUserWithTeam(user.id);
+  if (!userWithTeam?.teamId) return { success: false, error: 'Aucune équipe trouvée' };
+
+  const file = formData.get('file');
+  if (!(file instanceof File)) return { success: false, error: 'Fichier manquant' };
+
+  const MAX_SIZE = 5 * 1024 * 1024; // 5 MB
+  if (file.size > MAX_SIZE) return { success: false, error: 'Fichier trop volumineux (max 5 Mo)' };
+
+  const ALLOWED = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+  if (!ALLOWED.includes(file.type)) {
+    return { success: false, error: 'Format non supporté (JPEG, PNG, WebP, GIF)' };
+  }
+
+  try {
+    const url = await uploadBlockAsset(file, userWithTeam.teamId, sessionId);
+    return { success: true, data: { url } };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Erreur upload';
+    return { success: false, error: msg };
   }
 }

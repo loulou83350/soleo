@@ -203,7 +203,7 @@ export const sessionBlocks = pgTable('session_blocks', {
     .notNull()
     .references(() => sessionPages.id, { onDelete: 'cascade' }),
   position: integer('position').notNull(),
-  // 'open_text' | 'mcq' | 'likert' | 'rating' | 'nps' | 'ranking' | 'matrix' | 'prototype_task'
+  // 'short_text' | 'long_text' | 'mcq' | 'likert' | 'rating' | 'nps' | 'card_sort' | 'matrix' | 'first_impression' | 'prototype_task'
   blockType: varchar('block_type', { length: 30 }).notNull(),
   config: jsonb('config').notNull().default({}),
   required: boolean('required').notNull().default(false),
@@ -240,13 +240,15 @@ export type NewSessionBlock = typeof sessionBlocks.$inferInsert;
 export type SessionStatus = 'draft' | 'published' | 'archived';
 export type PageType = 'intro' | 'question' | 'end';
 export type BlockType =
-  | 'open_text'
+  | 'short_text'
+  | 'long_text'
   | 'mcq'
   | 'likert'
   | 'rating'
   | 'nps'
-  | 'ranking'
+  | 'card_sort'
   | 'matrix'
+  | 'first_impression'
   | 'prototype_task';
 
 export type BlockConfig = Record<string, unknown>;

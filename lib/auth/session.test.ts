@@ -57,8 +57,12 @@ describe('signToken / verifyToken', () => {
 
     const token = await signToken(payload);
 
-    // Modifier le dernier caractère invalide la signature
-    const tampered = token.slice(0, -1) + (token.endsWith('A') ? 'B' : 'A');
+    // Modifier le premier caractère de la signature (3e segment) invalide les octets décodés.
+    // Le dernier caractère peut tomber sur des bits de remplissage base64url et rester valide.
+    const parts = token.split('.');
+    const sig = parts[2];
+    const tamperedSig = (sig[0] === 'A' ? 'B' : 'A') + sig.slice(1);
+    const tampered = [parts[0], parts[1], tamperedSig].join('.');
 
     await expect(verifyToken(tampered)).rejects.toThrow();
   });

@@ -47,11 +47,11 @@ export async function createSession(
     })
     .returning();
 
-  // 4. Create default open_text block on the question page
+  // 4. Create default short_text block on the question page
   await db.insert(sessionBlocks).values({
     sessionPageId: questionPage.id,
     position: 1,
-    blockType: 'open_text',
+    blockType: 'short_text',
     config: { question: '', placeholder: '' },
     required: false,
   });

@@ -5,7 +5,7 @@ import { BuilderHeader } from './BuilderHeader';
 import { PageList } from './PageList';
 import { Canvas } from './Canvas';
 import { ConfigPanel } from './ConfigPanel';
-import type { SessionWithPages, SessionPageWithBlocks, SessionPage } from '@/lib/db/schema';
+import type { SessionWithPages, SessionPageWithBlocks, SessionPage, SessionBlock } from '@/lib/db/schema';
 
 interface BuilderClientProps {
   session: SessionWithPages;
@@ -13,7 +13,7 @@ interface BuilderClientProps {
 }
 
 export function BuilderClient({ session, projectId }: BuilderClientProps) {
-  // Pages live in state so we can update them after addPage / reorderPages
+  // Pages live in state so we can update them after add/reorder/block changes
   const [pages, setPages] = useState<SessionPageWithBlocks[]>(session.pages);
 
   const firstPage = pages[0] ?? null;
@@ -22,41 +22,64 @@ export function BuilderClient({ session, projectId }: BuilderClientProps) {
 
   const activePage = pages.find((p) => p.id === activePageId) ?? null;
 
+  // ─── Page callbacks ────────────────────────────────────────────────────────
+
   function handleSelectPage(pageId: number) {
     setActivePageId(pageId);
     setSelectedBlockId(null);
   }
 
-  /**
-   * Called by PageList after a successful addPage server action.
-   * `newPages` contains the DB-ordered list (without block details),
-   * so we merge with existing block data to keep blocks in sync.
-   */
-  const handlePagesUpdated = useCallback(
-    (newPages: SessionPage[]) => {
-      setPages((prev) => {
-        const blocksByPageId = new Map(prev.map((p) => [p.id, p.blocks]));
-        return newPages.map((p) => ({
-          ...p,
-          blocks: blocksByPageId.get(p.id) ?? [],
-        }));
-      });
+  const handlePagesUpdated = useCallback((newPages: SessionPage[]) => {
+    setPages((prev) => {
+      const blocksByPageId = new Map(prev.map((p) => [p.id, p.blocks]));
+      return newPages.map((p) => ({
+        ...p,
+        blocks: blocksByPageId.get(p.id) ?? [],
+      }));
+    });
+    setActivePageId((prev) => {
+      const stillExists = newPages.some((p) => p.id === prev);
+      return stillExists ? prev : (newPages[0]?.id ?? null);
+    });
+  }, []);
 
-      // If the active page was removed, fall back to the first page
-      setActivePageId((prev) => {
-        const stillExists = newPages.some((p) => p.id === prev);
-        return stillExists ? prev : (newPages[0]?.id ?? null);
-      });
+  const handlePageAdded = useCallback((newPageId: number) => {
+    setActivePageId(newPageId);
+    setSelectedBlockId(null);
+  }, []);
+
+  // ─── Block callbacks ───────────────────────────────────────────────────────
+
+  const handleBlockAdded = useCallback((pageId: number, block: SessionBlock) => {
+    setPages((prev) =>
+      prev.map((p) =>
+        p.id === pageId ? { ...p, blocks: [...p.blocks, block] } : p
+      )
+    );
+  }, []);
+
+  const handleBlockUpdated = useCallback(
+    (blockId: number, updates: { config?: Record<string, unknown>; required?: boolean }) => {
+      setPages((prev) =>
+        prev.map((p) => ({
+          ...p,
+          blocks: p.blocks.map((b) =>
+            b.id === blockId ? { ...b, ...updates } : b
+          ),
+        }))
+      );
     },
     []
   );
 
-  /**
-   * Called by PageList when a new page is added, so we can select it.
-   */
-  const handlePageAdded = useCallback((newPageId: number) => {
-    setActivePageId(newPageId);
-    setSelectedBlockId(null);
+  const handleBlockDeleted = useCallback((blockId: number) => {
+    setPages((prev) =>
+      prev.map((p) => ({
+        ...p,
+        blocks: p.blocks.filter((b) => b.id !== blockId),
+      }))
+    );
+    setSelectedBlockId((prev) => (prev === blockId ? null : prev));
   }, []);
 
   return (
@@ -82,11 +105,19 @@ export function BuilderClient({ session, projectId }: BuilderClientProps) {
           onPageAdded={handlePageAdded}
         />
         <Canvas
+          sessionId={session.id}
           page={activePage}
           selectedBlockId={selectedBlockId}
           onSelectBlock={setSelectedBlockId}
+          onBlockAdded={handleBlockAdded}
         />
-        <ConfigPanel page={activePage} selectedBlockId={selectedBlockId} />
+        <ConfigPanel
+          page={activePage}
+          selectedBlockId={selectedBlockId}
+          sessionId={session.id}
+          onBlockDeleted={handleBlockDeleted}
+          onBlockUpdated={handleBlockUpdated}
+        />
       </div>
     </div>
   );

@@ -22,3 +22,28 @@ export const ReorderPagesSchema = z.object({
   sessionId: z.number().int().positive(),
   orderedPageIds: z.array(z.number().int().positive()).min(1),
 });
+
+const BLOCK_TYPES = [
+  'short_text', 'long_text', 'mcq', 'likert', 'rating',
+  'nps', 'card_sort', 'matrix', 'first_impression', 'prototype_task',
+] as const;
+
+export const AddBlockSchema = z.object({
+  sessionId: z.number().int().positive(),
+  pageId: z.number().int().positive(),
+  blockType: z.enum(BLOCK_TYPES),
+});
+
+export const UpdateBlockSchema = z.object({
+  blockId: z.number().int().positive(),
+  config: z.record(z.unknown()),
+  required: z.boolean(),
+});
+
+export const DeleteBlockSchema = z.object({
+  blockId: z.number().int().positive(),
+});
+
+export const UploadBlockImageSchema = z.object({
+  sessionId: z.number().int().positive(),
+});
