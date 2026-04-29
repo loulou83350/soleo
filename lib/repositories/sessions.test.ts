@@ -157,3 +157,66 @@ describe('getSessionWithPages', () => {
     expect(result?.pages).toEqual([]);
   });
 });
+
+describe('addPage', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    insertCallCount = 0;
+    insertReturns.length = 0;
+    vi.resetModules();
+  });
+
+  it('throws when session not found', async () => {
+    mockLimit.mockResolvedValueOnce([]); // session not found
+    const { addPage } = await import('./sessions');
+    await expect(addPage(1, 10, 100)).rejects.toThrow('Session not found');
+  });
+
+  it('inserts one new page record when adding a page', async () => {
+    const fakeSession = { id: 1, teamId: 10, projectId: 5, title: 'S1', status: 'draft' };
+    const introPage = { id: 10, sessionId: 1, position: 1, title: 'Introduction', pageType: 'intro' };
+    const questionPage = { id: 20, sessionId: 1, position: 2, title: 'Page 1', pageType: 'question' };
+    const endPage = { id: 30, sessionId: 1, position: 3, title: 'Fin', pageType: 'end' };
+    const newPage = { id: 40, sessionId: 1, position: 9999, title: 'Page 2', pageType: 'question' };
+    const currentPages = [introPage, questionPage, endPage];
+    const finalPages = [introPage, questionPage, newPage, endPage];
+
+    mockLimit.mockResolvedValue([fakeSession]);
+    mockOrderBy.mockResolvedValue(currentPages).mockResolvedValueOnce(currentPages).mockResolvedValueOnce(finalPages);
+
+    insertReturns.push([newPage]);
+    insertCallCount = 0;
+
+    const { addPage } = await import('./sessions');
+    await addPage(1, 10, 20);
+
+    // Exactly one insert: the new page
+    expect(mockDb.insert).toHaveBeenCalledTimes(1);
+    // At least one update (renumber): verifies the renumbering path was reached
+    expect(mockDb.update).toHaveBeenCalled();
+  });
+});
+
+describe('reorderPages', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.resetModules();
+  });
+
+  it('throws when session not found', async () => {
+    mockLimit.mockResolvedValueOnce([]);
+    const { reorderPages } = await import('./sessions');
+    await expect(reorderPages(1, 10, [10, 20, 30])).rejects.toThrow('Session not found');
+  });
+
+  it('updates each page position according to orderedPageIds order', async () => {
+    const fakeSession = { id: 1, teamId: 10, projectId: 5 };
+    mockLimit.mockResolvedValueOnce([fakeSession]);
+
+    const { reorderPages } = await import('./sessions');
+    await reorderPages(1, 10, [10, 20, 30]);
+
+    // Three pages → three update calls
+    expect(mockDb.update).toHaveBeenCalledTimes(3);
+  });
+});

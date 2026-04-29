@@ -5,6 +5,7 @@ import {
   sessionPages,
   sessionBlocks,
   Session,
+  SessionPage,
   SessionWithPages,
 } from '@/lib/db/schema';
 
@@ -146,4 +147,102 @@ export async function updateSessionTitle(
     .update(sessions)
     .set({ title, updatedAt: new Date() })
     .where(and(eq(sessions.id, sessionId), eq(sessions.teamId, teamId)));
+}
+
+/**
+ * Adds a new empty question page to a session, inserted after `afterPageId`.
+ * Intro and end page positions are preserved; intermediate pages are renumbered.
+ * Returns the full updated pages list (without blocks — caller can merge).
+ */
+export async function addPage(
+  sessionId: number,
+  teamId: number,
+  afterPageId: number
+): Promise<SessionPage[]> {
+  // Verify session belongs to team
+  const [session] = await db
+    .select()
+    .from(sessions)
+    .where(and(eq(sessions.id, sessionId), eq(sessions.teamId, teamId)))
+    .limit(1);
+  if (!session) throw new Error('Session not found');
+
+  // Load current pages sorted by position
+  const currentPages = await db
+    .select()
+    .from(sessionPages)
+    .where(eq(sessionPages.sessionId, sessionId))
+    .orderBy(asc(sessionPages.position));
+
+  const afterIdx = currentPages.findIndex((p) => p.id === afterPageId);
+  const insertIdx = afterIdx === -1 ? currentPages.length - 1 : afterIdx + 1;
+
+  // Never insert after the end page (always keep end last)
+  const endIdx = currentPages.findIndex((p) => p.pageType === 'end');
+  const safeInsertIdx = endIdx !== -1 ? Math.min(insertIdx, endIdx) : insertIdx;
+
+  // Build new ordered list with a placeholder for the new page
+  const newPageTitle = `Page ${currentPages.filter((p) => p.pageType === 'question').length + 1}`;
+  const [newPage] = await db
+    .insert(sessionPages)
+    .values({
+      sessionId,
+      position: 9999, // temporary; renumbered below
+      title: newPageTitle,
+      pageType: 'question',
+    })
+    .returning();
+
+  // Splice the new page into the ordered list at the safe position
+  const reordered = [
+    ...currentPages.slice(0, safeInsertIdx),
+    newPage,
+    ...currentPages.slice(safeInsertIdx),
+  ];
+
+  // Renumber all pages 1…n
+  await Promise.all(
+    reordered.map((page, idx) =>
+      db
+        .update(sessionPages)
+        .set({ position: idx + 1, updatedAt: new Date() })
+        .where(eq(sessionPages.id, page.id))
+    )
+  );
+
+  // Return final sorted pages
+  return db
+    .select()
+    .from(sessionPages)
+    .where(eq(sessionPages.sessionId, sessionId))
+    .orderBy(asc(sessionPages.position));
+}
+
+/**
+ * Reorders pages to match `orderedPageIds`.
+ * Intro and end pages must remain at first and last positions.
+ * Positions are renumbered 1…n based on the provided order.
+ */
+export async function reorderPages(
+  sessionId: number,
+  teamId: number,
+  orderedPageIds: number[]
+): Promise<void> {
+  // Verify session belongs to team
+  const [session] = await db
+    .select()
+    .from(sessions)
+    .where(and(eq(sessions.id, sessionId), eq(sessions.teamId, teamId)))
+    .limit(1);
+  if (!session) throw new Error('Session not found');
+
+  // Update each page's position according to its index in orderedPageIds
+  await Promise.all(
+    orderedPageIds.map((pageId, idx) =>
+      db
+        .update(sessionPages)
+        .set({ position: idx + 1, updatedAt: new Date() })
+        .where(and(eq(sessionPages.id, pageId), eq(sessionPages.sessionId, sessionId)))
+    )
+  );
 }
