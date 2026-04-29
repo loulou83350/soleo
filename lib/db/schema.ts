@@ -243,6 +243,7 @@ export type NewSessionBlock = typeof sessionBlocks.$inferInsert;
 export type SessionStatus = 'draft' | 'published' | 'archived';
 export type PageType = 'intro' | 'question' | 'end';
 export type BlockType =
+  | 'content'
   | 'short_text'
   | 'long_text'
   | 'mcq'

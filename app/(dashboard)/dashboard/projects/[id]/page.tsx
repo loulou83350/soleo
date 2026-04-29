@@ -1,54 +1,16 @@
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
-import { ChevronLeft, Plus, Layers, Clock } from 'lucide-react';
+import { ChevronLeft, Plus, Layers } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { getUser, getUserWithTeam } from '@/lib/db/queries';
 import { getProjectById } from '@/lib/repositories/projects';
 import { getSessionsByProject } from '@/lib/repositories/sessions';
 import { createSessionAction } from './sessions/actions';
+import { SessionList } from './SessionList';
 import type { Session } from '@/lib/db/schema';
 
 interface Props {
   params: Promise<{ id: string }>;
-}
-
-function SessionCard({ session, projectId }: { session: Session; projectId: number }) {
-  const statusLabel: Record<string, string> = {
-    draft: 'Brouillon',
-    published: 'Publié',
-    archived: 'Archivé',
-  };
-
-  return (
-    <Link
-      href={`/dashboard/projects/${projectId}/sessions/${session.id}/builder`}
-      className="block border border-border rounded-lg p-4 hover:bg-muted/40 transition-colors group"
-    >
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-sm font-medium text-foreground truncate group-hover:text-foreground">
-            {session.title}
-          </p>
-          <span className="text-xs text-muted-foreground inline-flex items-center gap-1 mt-1">
-            <Clock className="h-3 w-3" />
-            {new Date(session.updatedAt).toLocaleDateString('fr-FR', {
-              day: 'numeric',
-              month: 'short',
-            })}
-          </span>
-        </div>
-        <span
-          className={`shrink-0 text-xs px-2 py-0.5 rounded-full font-medium ${
-            session.status === 'published'
-              ? 'bg-success/15 text-success'
-              : 'bg-muted text-muted-foreground'
-          }`}
-        >
-          {statusLabel[session.status] ?? session.status}
-        </span>
-      </div>
-    </Link>
-  );
 }
 
 export default async function ProjectDetailPage({ params }: Props) {
@@ -114,11 +76,7 @@ export default async function ProjectDetailPage({ params }: Props) {
               Sessions{' '}
               <span className="text-muted-foreground font-normal">({sessions.length})</span>
             </p>
-            <div className="space-y-2">
-              {sessions.map((session) => (
-                <SessionCard key={session.id} session={session} projectId={projectId} />
-              ))}
-            </div>
+            <SessionList sessions={sessions} projectId={projectId} />
           </div>
         )}
       </div>

@@ -2,6 +2,11 @@ import type { BlockType, BlockConfig } from '@/lib/db/schema';
 
 // ─── Per-type config shapes ──────────────────────────────────────────────────
 
+export type ContentConfig = {
+  title: string;
+  body: string;
+};
+
 export type ShortTextConfig = {
   question: string;
   placeholder: string;
@@ -70,6 +75,11 @@ export type PrototypeTaskConfig = {
 // ─── Default configs ─────────────────────────────────────────────────────────
 
 export const BLOCK_DEFAULTS: Record<BlockType, BlockConfig> = {
+  content: {
+    title: '',
+    body: '',
+  } satisfies ContentConfig,
+
   short_text: {
     question: '',
     placeholder: '',
@@ -134,6 +144,7 @@ export const BLOCK_DEFAULTS: Record<BlockType, BlockConfig> = {
 // ─── UI labels ───────────────────────────────────────────────────────────────
 
 export const BLOCK_LABELS: Record<BlockType, string> = {
+  content: 'Texte / Titre',
   short_text: 'Question courte',
   long_text: 'Question longue',
   mcq: 'Choix multiple',
@@ -148,6 +159,7 @@ export const BLOCK_LABELS: Record<BlockType, string> = {
 
 // Ordered for BlockPalette display (prototype_task last / disabled)
 export const BLOCK_PALETTE_ORDER: BlockType[] = [
+  'content',
   'short_text',
   'long_text',
   'mcq',

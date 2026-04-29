@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import {
   BookOpen, Flag, AlignLeft, AlignJustify, CheckSquare, BarChart2,
-  Star, Gauge, LayoutGrid, Table2, Eye, Play, Plus,
+  Star, Gauge, LayoutGrid, Table2, Eye, Play, Type, Plus,
 } from 'lucide-react';
 import type { SessionBlock, SessionPageWithBlocks, BlockType } from '@/lib/db/schema';
 import { BLOCK_LABELS } from '@/lib/domain/blocks';
@@ -13,6 +13,7 @@ import { addBlockAction } from '@/app/(dashboard)/dashboard/projects/[id]/sessio
 // ─── Block type icons ─────────────────────────────────────────────────────────
 
 const BLOCK_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
+  content: Type,
   short_text: AlignLeft,
   long_text: AlignJustify,
   mcq: CheckSquare,
@@ -41,6 +42,7 @@ function BlockCard({
   const blockType = block.blockType as BlockType;
   const label = BLOCK_LABELS[blockType] ?? block.blockType;
   const Icon = BLOCK_ICONS[block.blockType] ?? AlignLeft;
+  const isContent = block.blockType === 'content';
 
   return (
     <button
@@ -60,8 +62,9 @@ function BlockCard({
             {label}
           </p>
 
-          {/* Question text */}
-          {question ? (
+          {/* Content block: show title + body preview */}
+          {/* Question block: show question text */}
+          {isContent ? null : question ? (
             <p className="text-sm text-foreground leading-snug">{question}</p>
           ) : (
             <p className="text-sm text-muted-foreground italic">Question vide…</p>
@@ -85,6 +88,22 @@ function BlockPreview({ block }: { block: SessionBlock }) {
   const config = block.config as Record<string, unknown>;
 
   switch (block.blockType) {
+    case 'content': {
+      const title = typeof config.title === 'string' ? config.title : '';
+      const body = typeof config.body === 'string' ? config.body : '';
+      return (
+        <div className="mt-1.5 space-y-0.5">
+          {title ? (
+            <p className="text-sm font-semibold text-foreground leading-snug">{title}</p>
+          ) : (
+            <p className="text-sm text-muted-foreground italic">Titre vide…</p>
+          )}
+          {body ? (
+            <p className="text-xs text-muted-foreground leading-snug line-clamp-2">{body}</p>
+          ) : null}
+        </div>
+      );
+    }
     case 'mcq': {
       const options = Array.isArray(config.options) ? config.options.slice(0, 3) : [];
       if (options.length === 0) return null;

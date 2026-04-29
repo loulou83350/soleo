@@ -9,6 +9,8 @@ import {
   getSessionWithPages,
   addPage,
   reorderPages,
+  deletePage,
+  deleteSession,
   publishSession,
 } from '@/lib/repositories/sessions';
 import {
@@ -20,6 +22,8 @@ import {
   UpdateBlockSchema,
   DeleteBlockSchema,
   PublishSessionSchema,
+  DeletePageSchema,
+  DeleteSessionSchema,
 } from '@/lib/validations/sessions';
 import { addBlock, updateBlock, deleteBlock } from '@/lib/repositories/blocks';
 import { uploadBlockAsset } from '@/lib/supabase/storage';
@@ -296,5 +300,50 @@ export async function publishSessionAction(sessionId: number): Promise<PublishRe
     }
     const msg = err instanceof Error ? err.message : 'Erreur de publication';
     return { ok: false, error: msg };
+  }
+}
+
+// ─── Delete Page ─────────────────────────────────────────────────────────────
+
+export async function deletePageAction(
+  sessionId: number,
+  pageId: number
+): Promise<ActionResult<{ pages: SessionPage[] }>> {
+  const user = await getUser();
+  if (!user) return { success: false, error: 'Non authentifié' };
+
+  const userWithTeam = await getUserWithTeam(user.id);
+  if (!userWithTeam?.teamId) return { success: false, error: 'Aucune équipe trouvée' };
+
+  const parsed = DeletePageSchema.safeParse({ sessionId, pageId });
+  if (!parsed.success) return { success: false, error: 'Données invalides' };
+
+  try {
+    const pages = await deletePage(sessionId, userWithTeam.teamId, pageId);
+    return { success: true, data: { pages } };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : 'Erreur' };
+  }
+}
+
+// ─── Delete Session ───────────────────────────────────────────────────────────
+
+export async function deleteSessionAction(
+  sessionId: number
+): Promise<ActionResult<void>> {
+  const user = await getUser();
+  if (!user) return { success: false, error: 'Non authentifié' };
+
+  const userWithTeam = await getUserWithTeam(user.id);
+  if (!userWithTeam?.teamId) return { success: false, error: 'Aucune équipe trouvée' };
+
+  const parsed = DeleteSessionSchema.safeParse({ sessionId });
+  if (!parsed.success) return { success: false, error: 'Données invalides' };
+
+  try {
+    await deleteSession(sessionId, userWithTeam.teamId);
+    return { success: true, data: undefined };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : 'Erreur' };
   }
 }

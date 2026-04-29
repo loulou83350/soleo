@@ -12,6 +12,7 @@ import {
   Table2,
   Eye,
   Play,
+  Type,
   X,
 } from 'lucide-react';
 import type { BlockType } from '@/lib/db/schema';
@@ -20,6 +21,7 @@ import { BLOCK_LABELS, BLOCK_PALETTE_ORDER } from '@/lib/domain/blocks';
 // ─── Icons per block type ─────────────────────────────────────────────────────
 
 const BLOCK_ICONS: Record<BlockType, React.ComponentType<{ className?: string }>> = {
+  content: Type,
   short_text: AlignLeft,
   long_text: AlignJustify,
   mcq: CheckSquare,

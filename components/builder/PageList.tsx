@@ -18,8 +18,8 @@ import {
   arrayMove,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { FileText, BookOpen, Flag, Plus, GripVertical } from 'lucide-react';
-import { addPageAction, reorderPagesAction } from '@/app/(dashboard)/dashboard/projects/[id]/sessions/actions';
+import { FileText, BookOpen, Flag, Plus, GripVertical, Trash2 } from 'lucide-react';
+import { addPageAction, reorderPagesAction, deletePageAction } from '@/app/(dashboard)/dashboard/projects/[id]/sessions/actions';
 import type { SessionPage } from '@/lib/db/schema';
 import type { SessionPageWithBlocks } from '@/lib/db/schema';
 
@@ -43,10 +43,12 @@ interface SortablePageItemProps {
   page: SessionPageWithBlocks;
   index: number;
   isActive: boolean;
+  isDeleting: boolean;
   onSelect: () => void;
+  onDelete: () => void;
 }
 
-function SortablePageItem({ page, index, isActive, onSelect }: SortablePageItemProps) {
+function SortablePageItem({ page, index, isActive, isDeleting, onSelect, onDelete }: SortablePageItemProps) {
   const isSpecial = page.pageType === 'intro' || page.pageType === 'end';
 
   const {
@@ -58,7 +60,7 @@ function SortablePageItem({ page, index, isActive, onSelect }: SortablePageItemP
     isDragging,
   } = useSortable({
     id: page.id,
-    disabled: isSpecial, // intro and end pages cannot be dragged
+    disabled: isSpecial,
   });
 
   const style = {
@@ -71,11 +73,11 @@ function SortablePageItem({ page, index, isActive, onSelect }: SortablePageItemP
   const Icon = PAGE_TYPE_ICON[pageType] ?? FileText;
 
   return (
-    <div ref={setNodeRef} style={style}>
+    <div ref={setNodeRef} style={style} className="group/item relative">
       <button
         onClick={onSelect}
         aria-current={isActive ? 'page' : undefined}
-        className={`w-full text-left flex items-center gap-2 px-2 py-2 rounded-md text-sm transition-colors group ${
+        className={`w-full text-left flex items-center gap-2 px-2 py-2 rounded-md text-sm transition-colors ${
           isActive
             ? 'bg-muted text-foreground font-medium border-l-2 border-foreground -ml-px pl-[7px]'
             : 'text-muted-foreground hover:text-foreground hover:bg-muted/60'
@@ -110,6 +112,18 @@ function SortablePageItem({ page, index, isActive, onSelect }: SortablePageItemP
           {page.blocks.length}
         </span>
       </button>
+
+      {/* Delete button — only for question pages, visible on hover */}
+      {!isSpecial && (
+        <button
+          onClick={(e) => { e.stopPropagation(); onDelete(); }}
+          disabled={isDeleting}
+          aria-label={`Supprimer ${page.title || `Page ${index}`}`}
+          className="absolute right-1 top-1/2 -translate-y-1/2 h-5 w-5 flex items-center justify-center rounded text-muted-foreground/0 group-hover/item:text-muted-foreground/50 hover:!text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-40"
+        >
+          <Trash2 className="h-3 w-3" />
+        </button>
+      )}
     </div>
   );
 }
@@ -134,10 +148,11 @@ export function PageList({
   onPageAdded,
 }: PageListProps) {
   const [isAdding, setIsAdding] = useState(false);
+  const [deletingPageId, setDeletingPageId] = useState<number | null>(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
-      activationConstraint: { distance: 4 }, // require 4px drag to start
+      activationConstraint: { distance: 4 },
     }),
     useSensor(KeyboardSensor, {
       coordinateGetter: sortableKeyboardCoordinates,
@@ -153,22 +168,24 @@ export function PageList({
     const { active, over } = event;
     if (!over || active.id === over.id) return;
 
-    // Compute new order: reorder question pages around intro/end
     const oldIndex = pages.findIndex((p) => p.id === active.id);
     const newIndex = pages.findIndex((p) => p.id === over.id);
     if (oldIndex === -1 || newIndex === -1) return;
 
-    const reordered = arrayMove(pages, oldIndex, newIndex);
-    // Optimistic update
+    // Safety: never allow moving before intro (index 0) or after end (last index)
+    const introIndex = pages.findIndex((p) => p.pageType === 'intro');
+    const endIndex = pages.findIndex((p) => p.pageType === 'end');
+    const clampedIndex = Math.max(introIndex + 1, Math.min(endIndex - 1, newIndex));
+    if (clampedIndex === oldIndex) return;
+
+    const reordered = arrayMove(pages, oldIndex, clampedIndex);
     onPagesUpdated(reordered);
 
-    // Persist
     const orderedPageIds = reordered.map((p) => p.id);
     await reorderPagesAction(sessionId, orderedPageIds);
   }
 
   const handleAddPage = useCallback(async () => {
-    // Insert after the last question page (before the end page)
     const lastQuestionPage = [...pages]
       .reverse()
       .find((p) => p.pageType === 'question');
@@ -181,13 +198,22 @@ export function PageList({
 
     if (result.success && result.data) {
       onPagesUpdated(result.data.pages);
-      // The new page is the last question page in the returned list
       const newPage = [...result.data.pages]
         .reverse()
         .find((p) => p.pageType === 'question');
       if (newPage) onPageAdded(newPage.id);
     }
   }, [sessionId, pages, onPagesUpdated, onPageAdded]);
+
+  const handleDeletePage = useCallback(async (pageId: number) => {
+    setDeletingPageId(pageId);
+    const result = await deletePageAction(sessionId, pageId);
+    setDeletingPageId(null);
+
+    if (result.success && result.data) {
+      onPagesUpdated(result.data.pages);
+    }
+  }, [sessionId, onPagesUpdated]);
 
   return (
     <aside
@@ -224,7 +250,9 @@ export function PageList({
                 page={page}
                 index={index + 1}
                 isActive={page.id === activePageId}
+                isDeleting={deletingPageId === page.id}
                 onSelect={() => onSelectPage(page.id)}
+                onDelete={() => handleDeletePage(page.id)}
               />
             ))}
           </SortableContext>

@@ -250,6 +250,77 @@ export async function reorderPages(
   );
 }
 
+// ─── Delete page ─────────────────────────────────────────────────────────────
+
+/**
+ * Deletes a question page and renumbers remaining pages.
+ * Intro and end pages cannot be deleted.
+ */
+export async function deletePage(
+  sessionId: number,
+  teamId: number,
+  pageId: number
+): Promise<SessionPage[]> {
+  // Verify session belongs to team
+  const [session] = await db
+    .select()
+    .from(sessions)
+    .where(and(eq(sessions.id, sessionId), eq(sessions.teamId, teamId)))
+    .limit(1);
+  if (!session) throw new Error('Session introuvable');
+
+  // Load target page
+  const [page] = await db
+    .select()
+    .from(sessionPages)
+    .where(and(eq(sessionPages.id, pageId), eq(sessionPages.sessionId, sessionId)))
+    .limit(1);
+  if (!page) throw new Error('Page introuvable');
+  if (page.pageType !== 'question') throw new Error('Impossible de supprimer cette page');
+
+  // Delete page (cascades to its blocks)
+  await db
+    .delete(sessionPages)
+    .where(eq(sessionPages.id, pageId));
+
+  // Renumber remaining pages
+  const remaining = await db
+    .select()
+    .from(sessionPages)
+    .where(eq(sessionPages.sessionId, sessionId))
+    .orderBy(asc(sessionPages.position));
+
+  await Promise.all(
+    remaining.map((p, idx) =>
+      db
+        .update(sessionPages)
+        .set({ position: idx + 1, updatedAt: new Date() })
+        .where(eq(sessionPages.id, p.id))
+    )
+  );
+
+  return remaining;
+}
+
+// ─── Delete session ───────────────────────────────────────────────────────────
+
+/**
+ * Deletes a session and all its pages/blocks (cascade).
+ */
+export async function deleteSession(
+  sessionId: number,
+  teamId: number
+): Promise<void> {
+  const [session] = await db
+    .select()
+    .from(sessions)
+    .where(and(eq(sessions.id, sessionId), eq(sessions.teamId, teamId)))
+    .limit(1);
+  if (!session) throw new Error('Session introuvable');
+
+  await db.delete(sessions).where(eq(sessions.id, sessionId));
+}
+
 // ─── Publish ─────────────────────────────────────────────────────────────────
 
 /**
@@ -279,6 +350,9 @@ export async function publishSession(
     for (const block of page.blocks) {
       const config = block.config as Record<string, unknown>;
       const blockLabel = BLOCK_LABELS[block.blockType as keyof typeof BLOCK_LABELS] ?? block.blockType;
+
+      // Content blocks (title/text) don't require a question — skip validation
+      if (block.blockType === 'content') continue;
 
       if (block.blockType === 'first_impression') {
         const imageUrl = typeof config.imageUrl === 'string' ? config.imageUrl : '';

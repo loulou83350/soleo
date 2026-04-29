@@ -3,12 +3,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   AlignLeft, AlignJustify, CheckSquare, BarChart2, Star,
-  Gauge, LayoutGrid, Table2, Eye, Play,
+  Gauge, LayoutGrid, Table2, Eye, Play, Type,
   Plus, Trash2, Check, Loader2, AlertCircle, Upload,
 } from 'lucide-react';
 import type { SessionBlock, SessionPageWithBlocks, BlockType } from '@/lib/db/schema';
 import type {
-  ShortTextConfig, LongTextConfig, McqConfig, LikertConfig,
+  ContentConfig, ShortTextConfig, LongTextConfig, McqConfig, LikertConfig,
   RatingConfig, NpsConfig, CardSortConfig, MatrixConfig,
   FirstImpressionConfig,
 } from '@/lib/domain/blocks';
@@ -195,6 +195,33 @@ function ImageUpload({
 }
 
 // ─── Type-specific forms ──────────────────────────────────────────────────────
+
+function ContentForm({ config, onChange }: { config: ContentConfig; onChange: (c: ContentConfig) => void }) {
+  return (
+    <div className="space-y-3">
+      <div>
+        <Label>Titre (optionnel)</Label>
+        <TextInput
+          value={config.title}
+          onChange={(v) => onChange({ ...config, title: v })}
+          placeholder="Titre de section…"
+        />
+      </div>
+      <div>
+        <Label>Corps du texte</Label>
+        <TextInput
+          value={config.body}
+          onChange={(v) => onChange({ ...config, body: v })}
+          placeholder="Ajoutez des instructions, un contexte, une description…"
+          multiline
+        />
+        <p className="mt-1 text-[11px] text-muted-foreground">
+          Ce bloc affiche du texte au participant sans attendre de réponse.
+        </p>
+      </div>
+    </div>
+  );
+}
 
 function ShortTextForm({ config, onChange }: { config: ShortTextConfig; onChange: (c: ShortTextConfig) => void }) {
   return (
@@ -499,6 +526,7 @@ function FirstImpressionForm({ config, onChange, sessionId }: { config: FirstImp
 // ─── Block type icon map ──────────────────────────────────────────────────────
 
 const BLOCK_ICONS: Record<BlockType, React.ComponentType<{ className?: string }>> = {
+  content: Type,
   short_text: AlignLeft,
   long_text: AlignJustify,
   mcq: CheckSquare,
@@ -614,16 +642,24 @@ function BlockConfigForm({ block, sessionId, onBlockDeleted, onBlockUpdated }: B
 
       {/* Fields */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {/* Required toggle — always shown */}
-        <div className="pb-3 border-b border-border">
-          <Toggle
-            label="Réponse obligatoire"
-            checked={required}
-            onChange={handleRequiredChange}
-          />
-        </div>
+        {/* Required toggle — hidden for content blocks (no answer expected) */}
+        {blockType !== 'content' && (
+          <div className="pb-3 border-b border-border">
+            <Toggle
+              label="Réponse obligatoire"
+              checked={required}
+              onChange={handleRequiredChange}
+            />
+          </div>
+        )}
 
         {/* Type-specific fields */}
+        {blockType === 'content' && (
+          <ContentForm
+            config={config as ContentConfig}
+            onChange={(c) => handleConfigChange(c as Record<string, unknown>)}
+          />
+        )}
         {blockType === 'short_text' && (
           <ShortTextForm
             config={config as ShortTextConfig}
