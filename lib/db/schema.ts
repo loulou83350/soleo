@@ -175,7 +175,10 @@ export const sessions = pgTable('sessions', {
     .notNull()
     .references(() => projects.id),
   title: varchar('title', { length: 200 }).notNull().default('Nouvelle session'),
+  // 'draft' | 'published' | 'archived'
   status: varchar('status', { length: 20 }).notNull().default('draft'),
+  // CUID2 token for the public participant URL (/s/[token]) — null until published
+  sessionToken: varchar('session_token', { length: 128 }).unique(),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 });

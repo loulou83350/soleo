@@ -47,3 +47,7 @@ export const DeleteBlockSchema = z.object({
 export const UploadBlockImageSchema = z.object({
   sessionId: z.number().int().positive(),
 });
+
+export const PublishSessionSchema = z.object({
+  sessionId: z.number().int().positive(),
+});

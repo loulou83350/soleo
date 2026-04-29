@@ -1,4 +1,5 @@
 import { eq, and, asc, desc, inArray } from 'drizzle-orm';
+import { createId } from '@paralleldrive/cuid2';
 import { db } from '@/lib/db/drizzle';
 import {
   sessions,
@@ -8,6 +9,8 @@ import {
   SessionPage,
   SessionWithPages,
 } from '@/lib/db/schema';
+import { BLOCK_LABELS } from '@/lib/domain/blocks';
+import type { ValidationIssue } from '@/lib/domain/types';
 
 // ─── Create ─────────────────────────────────────────────────────────────────
 
@@ -245,4 +248,114 @@ export async function reorderPages(
         .where(and(eq(sessionPages.id, pageId), eq(sessionPages.sessionId, sessionId)))
     )
   );
+}
+
+// ─── Publish ─────────────────────────────────────────────────────────────────
+
+/**
+ * Validates blocks, generates a CUID2 token, then sets status = 'published'.
+ * Throws with a `validationIssues` property if blocks are misconfigured.
+ * Returns the CUID2 token on success (idempotent — re-uses existing token if
+ * the session was already published).
+ */
+export async function publishSession(
+  sessionId: number,
+  teamId: number
+): Promise<string> {
+  const session = await getSessionWithPages(sessionId, teamId);
+  if (!session) throw new Error('Session introuvable');
+
+  // If already published and has a token, just return it
+  if (session.status === 'published' && session.sessionToken) {
+    return session.sessionToken;
+  }
+
+  // Validate all blocks on question pages
+  const issues: ValidationIssue[] = [];
+
+  for (const page of session.pages) {
+    if (page.pageType !== 'question') continue;
+
+    for (const block of page.blocks) {
+      const config = block.config as Record<string, unknown>;
+      const blockLabel = BLOCK_LABELS[block.blockType as keyof typeof BLOCK_LABELS] ?? block.blockType;
+
+      if (block.blockType === 'first_impression') {
+        const imageUrl = typeof config.imageUrl === 'string' ? config.imageUrl : '';
+        if (!imageUrl.trim()) {
+          issues.push({ pageTitle: page.title, blockLabel, issue: 'Image requise' });
+        }
+      } else if (block.blockType === 'prototype_task') {
+        const url = typeof config.url === 'string' ? config.url : '';
+        if (!url.trim()) {
+          issues.push({ pageTitle: page.title, blockLabel, issue: 'URL du prototype requise' });
+        }
+      } else {
+        const question = typeof config.question === 'string' ? config.question : '';
+        if (!question.trim()) {
+          issues.push({ pageTitle: page.title, blockLabel, issue: 'Question vide' });
+        }
+      }
+    }
+  }
+
+  if (issues.length > 0) {
+    const err = new Error('Validation failed') as Error & { validationIssues: ValidationIssue[] };
+    err.validationIssues = issues;
+    throw err;
+  }
+
+  const token = session.sessionToken ?? createId();
+
+  await db
+    .update(sessions)
+    .set({ status: 'published', sessionToken: token, updatedAt: new Date() })
+    .where(and(eq(sessions.id, sessionId), eq(sessions.teamId, teamId)));
+
+  return token;
+}
+
+/**
+ * Loads a published session by its public CUID2 token.
+ * Returns null if the token doesn't match or session isn't published.
+ */
+export async function getSessionByToken(token: string): Promise<SessionWithPages | null> {
+  const [session] = await db
+    .select()
+    .from(sessions)
+    .where(and(eq(sessions.sessionToken, token), eq(sessions.status, 'published')))
+    .limit(1);
+
+  if (!session) return null;
+
+  const pages = await db
+    .select()
+    .from(sessionPages)
+    .where(eq(sessionPages.sessionId, session.id))
+    .orderBy(asc(sessionPages.position));
+
+  const pageIds = pages.map((p) => p.id);
+  const blocks =
+    pageIds.length > 0
+      ? await db
+          .select()
+          .from(sessionBlocks)
+          .where(inArray(sessionBlocks.sessionPageId, pageIds))
+          .orderBy(asc(sessionBlocks.position))
+      : [];
+
+  const blocksByPage = new Map<number, typeof blocks>();
+  for (const block of blocks) {
+    const list = blocksByPage.get(block.sessionPageId) ?? [];
+    list.push(block);
+    blocksByPage.set(block.sessionPageId, list);
+  }
+
+  return {
+    ...session,
+    pages: pages.map((page) => ({
+      ...page,
+      blocks: blocksByPage.get(page.id) ?? [],
+    })),
+  };
 }

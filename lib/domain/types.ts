@@ -8,6 +8,18 @@ export type ActionResult<T> =
   | { success: true; data: T }
   | { success: false; error: string };
 
+// ─── Résultat de publication d'une session ──────────────────────────────────
+export type ValidationIssue = {
+  pageTitle: string;
+  blockLabel: string;
+  issue: string;
+};
+
+export type PublishResult =
+  | { ok: true; token: string; url: string }
+  | { ok: false; error: string }
+  | { ok: false; validationIssues: ValidationIssue[] };
+
 // ─── Rôles utilisateurs ────────────────────────────────────────────────────
 export type UserRole = 'admin' | 'member' | 'viewer';
 

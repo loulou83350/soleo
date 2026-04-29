@@ -9,6 +9,7 @@ import {
   getSessionWithPages,
   addPage,
   reorderPages,
+  publishSession,
 } from '@/lib/repositories/sessions';
 import {
   CreateSessionSchema,
@@ -18,10 +19,11 @@ import {
   AddBlockSchema,
   UpdateBlockSchema,
   DeleteBlockSchema,
+  PublishSessionSchema,
 } from '@/lib/validations/sessions';
 import { addBlock, updateBlock, deleteBlock } from '@/lib/repositories/blocks';
 import { uploadBlockAsset } from '@/lib/supabase/storage';
-import type { ActionResult } from '@/lib/domain/types';
+import type { ActionResult, PublishResult, ValidationIssue } from '@/lib/domain/types';
 import type { SessionPage, SessionBlock } from '@/lib/db/schema';
 
 // ─── Create Session ──────────────────────────────────────────────────────────
@@ -252,5 +254,47 @@ export async function uploadBlockImageAction(
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Erreur upload';
     return { success: false, error: msg };
+  }
+}
+
+// ─── Publish Session ─────────────────────────────────────────────────────────
+
+/**
+ * Validates all block configurations, then publishes the session and returns
+ * the public participant URL.
+ *
+ * Returns:
+ *   { ok: true, token, url }           — success
+ *   { ok: false, validationIssues }    — blocks have missing config
+ *   { ok: false, error }               — auth / server error
+ */
+export async function publishSessionAction(sessionId: number): Promise<PublishResult> {
+  const user = await getUser();
+  if (!user) return { ok: false, error: 'Non authentifié' };
+
+  const userWithTeam = await getUserWithTeam(user.id);
+  if (!userWithTeam?.teamId) return { ok: false, error: 'Aucune équipe trouvée' };
+
+  const parsed = PublishSessionSchema.safeParse({ sessionId });
+  if (!parsed.success) return { ok: false, error: 'Données invalides' };
+
+  try {
+    const token = await publishSession(sessionId, userWithTeam.teamId);
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000';
+    return { ok: true, token, url: `${baseUrl}/s/${token}` };
+  } catch (err) {
+    // Check for validation issues thrown by publishSession
+    if (
+      err instanceof Error &&
+      'validationIssues' in err &&
+      Array.isArray((err as Error & { validationIssues: ValidationIssue[] }).validationIssues)
+    ) {
+      return {
+        ok: false,
+        validationIssues: (err as Error & { validationIssues: ValidationIssue[] }).validationIssues,
+      };
+    }
+    const msg = err instanceof Error ? err.message : 'Erreur de publication';
+    return { ok: false, error: msg };
   }
 }

@@ -92,6 +92,8 @@ export function BuilderClient({ session, projectId }: BuilderClientProps) {
         sessionId={session.id}
         projectId={projectId}
         initialTitle={session.title}
+        initialStatus={session.status}
+        initialToken={session.sessionToken ?? null}
       />
 
       {/* Three-panel body */}

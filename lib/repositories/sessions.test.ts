@@ -52,6 +52,25 @@ vi.mock('drizzle-orm', () => ({
   inArray: vi.fn(() => 'inArray'),
 }));
 
+vi.mock('@paralleldrive/cuid2', () => ({
+  createId: vi.fn(() => 'test-cuid2-token'),
+}));
+
+vi.mock('@/lib/domain/blocks', () => ({
+  BLOCK_LABELS: {
+    short_text: 'Question courte',
+    long_text: 'Question longue',
+    mcq: 'Choix multiple',
+    likert: 'Échelle de Likert',
+    rating: 'Note',
+    nps: 'NPS',
+    card_sort: 'Tri de carte',
+    matrix: 'Matrice',
+    first_impression: 'Premier regard',
+    prototype_task: 'Tâche prototype',
+  },
+}));
+
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
 describe('createSession', () => {
@@ -145,9 +164,8 @@ describe('getSessionWithPages', () => {
   it('returns session with empty pages when session exists but has no pages', async () => {
     const fakeSession = { id: 1, teamId: 10, projectId: 5, title: 'S1', status: 'draft' };
     mockLimit.mockResolvedValueOnce([fakeSession]);
-    mockOrderBy
-      .mockResolvedValueOnce([]) // pages
-      .mockResolvedValueOnce([]); // blocks (skipped since no pages)
+    // Only one mockOrderBy call: pages → [] (blocks query is skipped when pages is empty)
+    mockOrderBy.mockResolvedValueOnce([]);
 
     const { getSessionWithPages } = await import('./sessions');
     const result = await getSessionWithPages(1, 10);
@@ -218,5 +236,135 @@ describe('reorderPages', () => {
 
     // Three pages → three update calls
     expect(mockDb.update).toHaveBeenCalledTimes(3);
+  });
+});
+
+// ─── publishSession ───────────────────────────────────────────────────────────
+
+describe('publishSession', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    insertCallCount = 0;
+    insertReturns.length = 0;
+    vi.resetModules();
+  });
+
+  it('throws when session not found', async () => {
+    mockLimit.mockResolvedValueOnce([]); // getSessionWithPages → null
+    const { publishSession } = await import('./sessions');
+    await expect(publishSession(1, 10)).rejects.toThrow('Session introuvable');
+  });
+
+  it('throws with validationIssues when a block has an empty question', async () => {
+    const fakeSession = { id: 1, teamId: 10, projectId: 5, title: 'S1', status: 'draft', sessionToken: null };
+    const questionPage = { id: 20, sessionId: 1, position: 2, title: 'Page 1', pageType: 'question' };
+    const emptyBlock = { id: 1, sessionPageId: 20, blockType: 'short_text', config: { question: '' }, required: false, position: 1 };
+
+    mockLimit.mockResolvedValueOnce([fakeSession]);
+    mockOrderBy
+      .mockResolvedValueOnce([questionPage])
+      .mockResolvedValueOnce([emptyBlock]);
+
+    const { publishSession } = await import('./sessions');
+    const err = await publishSession(1, 10).catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(Error);
+    const typedErr = err as Error & { validationIssues: Array<{ issue: string }> };
+    expect(typedErr.validationIssues).toHaveLength(1);
+    expect(typedErr.validationIssues[0].issue).toBe('Question vide');
+  });
+
+  it('publishes and returns a token when all blocks are valid', async () => {
+    const fakeSession = { id: 1, teamId: 10, projectId: 5, title: 'S1', status: 'draft', sessionToken: null };
+    const questionPage = { id: 20, sessionId: 1, position: 2, title: 'Page 1', pageType: 'question' };
+    const validBlock = { id: 1, sessionPageId: 20, blockType: 'short_text', config: { question: 'Votre nom ?' }, required: false, position: 1 };
+
+    mockLimit.mockResolvedValueOnce([fakeSession]);
+    mockOrderBy
+      .mockResolvedValueOnce([questionPage])
+      .mockResolvedValueOnce([validBlock]);
+
+    const { publishSession } = await import('./sessions');
+    const token = await publishSession(1, 10);
+
+    expect(typeof token).toBe('string');
+    expect(token.length).toBeGreaterThan(0);
+    expect(mockDb.update).toHaveBeenCalledOnce();
+  });
+
+  it('returns existing token without calling update when already published', async () => {
+    const existingToken = 'already-published-token';
+    const fakeSession = { id: 1, teamId: 10, status: 'published', sessionToken: existingToken };
+
+    mockLimit.mockResolvedValueOnce([fakeSession]);
+    // Only one mockOrderBy call: pages → [] (early return before blocks query)
+    mockOrderBy.mockResolvedValueOnce([]);
+
+    const { publishSession } = await import('./sessions');
+    const token = await publishSession(1, 10);
+
+    expect(token).toBe(existingToken);
+    expect(mockDb.update).not.toHaveBeenCalled();
+  });
+
+  it('throws validationIssues when first_impression block has no imageUrl', async () => {
+    const fakeSession = { id: 1, teamId: 10, projectId: 5, title: 'S1', status: 'draft', sessionToken: null };
+    const questionPage = { id: 20, sessionId: 1, position: 2, title: 'Page 1', pageType: 'question' };
+    const block = { id: 1, sessionPageId: 20, blockType: 'first_impression', config: { imageUrl: '', duration: 5, instructions: '' }, required: false, position: 1 };
+
+    mockLimit.mockResolvedValueOnce([fakeSession]);
+    mockOrderBy
+      .mockResolvedValueOnce([questionPage])
+      .mockResolvedValueOnce([block]);
+
+    const { publishSession } = await import('./sessions');
+    const err = await publishSession(1, 10).catch((e: unknown) => e);
+
+    const typedErr = err as Error & { validationIssues: Array<{ issue: string }> };
+    expect(typedErr.validationIssues[0].issue).toBe('Image requise');
+  });
+});
+
+// ─── getSessionByToken ────────────────────────────────────────────────────────
+
+describe('getSessionByToken', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.resetModules();
+  });
+
+  it('returns null when token not found', async () => {
+    mockLimit.mockResolvedValueOnce([]);
+    const { getSessionByToken } = await import('./sessions');
+    const result = await getSessionByToken('invalid-token');
+    expect(result).toBeNull();
+  });
+
+  it('returns session with pages when token is valid', async () => {
+    const fakeSession = { id: 1, teamId: 10, status: 'published', sessionToken: 'valid-token', title: 'Test' };
+    const page = { id: 10, sessionId: 1, position: 1, title: 'Intro', pageType: 'intro' };
+
+    mockLimit.mockResolvedValueOnce([fakeSession]);
+    mockOrderBy
+      .mockResolvedValueOnce([page])
+      .mockResolvedValueOnce([]); // blocks
+
+    const { getSessionByToken } = await import('./sessions');
+    const result = await getSessionByToken('valid-token');
+
+    expect(result).not.toBeNull();
+    expect(result?.sessionToken).toBe('valid-token');
+    expect(result?.pages).toHaveLength(1);
+  });
+
+  it('returns session with empty pages when no pages exist', async () => {
+    const fakeSession = { id: 2, status: 'published', sessionToken: 'tok', title: 'Empty' };
+    mockLimit.mockResolvedValueOnce([fakeSession]);
+    mockOrderBy.mockResolvedValueOnce([]); // no pages → no block query
+
+    const { getSessionByToken } = await import('./sessions');
+    const result = await getSessionByToken('tok');
+
+    expect(result?.pages).toEqual([]);
   });
 });
