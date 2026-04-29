@@ -5,6 +5,7 @@ import { getUser, getUserWithTeam } from '@/lib/db/queries';
 import { getProjectById } from '@/lib/repositories/projects';
 import {
   createSession,
+  createSessionFromTemplate,
   updateSessionTitle,
   getSessionWithPages,
   addPage,
@@ -13,6 +14,7 @@ import {
   deleteSession,
   publishSession,
 } from '@/lib/repositories/sessions';
+import { TEMPLATE_MAP } from '@/lib/domain/templates';
 import {
   CreateSessionSchema,
   UpdateSessionTitleSchema,
@@ -59,6 +61,34 @@ export async function createSessionAction(formData: FormData): Promise<void> {
   redirect(
     `/dashboard/projects/${projectId}/sessions/${session.id}/builder`
   );
+}
+
+/**
+ * Creates a session from a template and returns the new session ID.
+ * Redirect is handled client-side (modal context).
+ */
+export async function createSessionFromTemplateAction(
+  projectId: number,
+  templateId: string
+): Promise<ActionResult<{ sessionId: number }>> {
+  const user = await getUser();
+  if (!user) return { success: false, error: 'Non authentifié' };
+
+  const userWithTeam = await getUserWithTeam(user.id);
+  if (!userWithTeam?.teamId) return { success: false, error: 'Aucune équipe trouvée' };
+
+  const template = TEMPLATE_MAP.get(templateId);
+  if (!template) return { success: false, error: 'Template introuvable' };
+
+  const project = await getProjectById(projectId, userWithTeam.teamId);
+  if (!project) return { success: false, error: 'Projet introuvable' };
+
+  try {
+    const session = await createSessionFromTemplate(userWithTeam.teamId, projectId, template);
+    return { success: true, data: { sessionId: session.id } };
+  } catch {
+    return { success: false, error: 'Erreur lors de la création' };
+  }
 }
 
 // ─── Update Session Title ────────────────────────────────────────────────────

@@ -11,6 +11,7 @@ import {
 } from '@/lib/db/schema';
 import { BLOCK_LABELS } from '@/lib/domain/blocks';
 import type { ValidationIssue } from '@/lib/domain/types';
+import type { Template } from '@/lib/domain/templates';
 
 // ─── Create ─────────────────────────────────────────────────────────────────
 
@@ -66,6 +67,48 @@ export async function createSession(
     title: 'Fin',
     pageType: 'end',
   });
+
+  return session;
+}
+
+/**
+ * Creates a session pre-populated from a template.
+ * All pages and blocks are inserted sequentially to preserve positions.
+ */
+export async function createSessionFromTemplate(
+  teamId: number,
+  projectId: number,
+  template: Template
+): Promise<Session> {
+  const [session] = await db
+    .insert(sessions)
+    .values({ teamId, projectId, title: template.name, status: 'draft' })
+    .returning();
+
+  for (let pageIdx = 0; pageIdx < template.pages.length; pageIdx++) {
+    const tPage = template.pages[pageIdx];
+
+    const [page] = await db
+      .insert(sessionPages)
+      .values({
+        sessionId: session.id,
+        position: pageIdx + 1,
+        title: tPage.title,
+        pageType: tPage.pageType,
+      })
+      .returning();
+
+    for (let blockIdx = 0; blockIdx < tPage.blocks.length; blockIdx++) {
+      const tBlock = tPage.blocks[blockIdx];
+      await db.insert(sessionBlocks).values({
+        sessionPageId: page.id,
+        position: blockIdx + 1,
+        blockType: tBlock.blockType,
+        config: tBlock.config,
+        required: tBlock.required,
+      });
+    }
+  }
 
   return session;
 }

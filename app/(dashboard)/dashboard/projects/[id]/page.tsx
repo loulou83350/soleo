@@ -1,12 +1,11 @@
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
-import { ChevronLeft, Plus, Layers } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { ChevronLeft, Layers } from 'lucide-react';
 import { getUser, getUserWithTeam } from '@/lib/db/queries';
 import { getProjectById } from '@/lib/repositories/projects';
 import { getSessionsByProject } from '@/lib/repositories/sessions';
-import { createSessionAction } from './sessions/actions';
 import { SessionList } from './SessionList';
+import { NewSessionButton } from './NewSessionButton';
 import type { Session } from '@/lib/db/schema';
 
 interface Props {
@@ -47,16 +46,7 @@ export default async function ProjectDetailPage({ params }: Props) {
         {/* Header */}
         <div className="flex items-center justify-between mb-8">
           <h1 className="text-xl font-semibold text-foreground">{project.name}</h1>
-          <form action={createSessionAction}>
-            <input type="hidden" name="projectId" value={projectId} />
-            <Button
-              type="submit"
-              className="bg-primary text-primary-foreground hover:bg-primary/90"
-            >
-              <Plus className="mr-2 h-4 w-4" />
-              Nouvelle session
-            </Button>
-          </form>
+          <NewSessionButton projectId={projectId} />
         </div>
 
         {/* Session list or empty state */}
