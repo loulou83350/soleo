@@ -47,3 +47,28 @@ export type InsightTag =
 
 // ─── Restriction de device ─────────────────────────────────────────────────
 export type DeviceRestriction = 'any' | 'desktop_only' | 'mobile_only';
+
+// ─── Logique conditionnelle des blocs ─────────────────────────────────────
+/**
+ * Opérateurs supportés :
+ *   answered        — le participant a répondu à ce bloc (toute valeur)
+ *   not_answered    — le participant n'a pas encore répondu
+ *   eq              — la réponse est exactement `value`
+ *   neq             — la réponse est différente de `value`
+ */
+export type ConditionOperator = 'answered' | 'not_answered' | 'eq' | 'neq';
+
+export type BlockCondition = {
+  sourceBlockId: number;    // ID du bloc source dont on lit la réponse
+  operator: ConditionOperator;
+  value?: string;           // Valeur de comparaison (ignorée pour answered/not_answered)
+};
+
+/**
+ * Règle de visibilité d'un bloc.
+ * null = toujours affiché (pas de condition).
+ */
+export type BlockVisibilityRule = {
+  match: 'all' | 'any';    // AND / OR entre les conditions
+  conditions: BlockCondition[];
+} | null;

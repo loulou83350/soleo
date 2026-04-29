@@ -210,6 +210,7 @@ export const sessionBlocks = pgTable('session_blocks', {
   blockType: varchar('block_type', { length: 30 }).notNull(),
   config: jsonb('config').notNull().default({}),
   required: boolean('required').notNull().default(false),
+  conditions: jsonb('conditions').default(null),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 });

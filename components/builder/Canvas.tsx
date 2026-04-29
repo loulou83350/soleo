@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import {
   BookOpen, Flag, AlignLeft, AlignJustify, CheckSquare, BarChart2,
-  Star, Gauge, LayoutGrid, Table2, Eye, Play, Type, Plus,
+  Star, Gauge, LayoutGrid, Table2, Eye, Play, Type, Plus, GitBranch,
 } from 'lucide-react';
 import type { SessionBlock, SessionPageWithBlocks, BlockType } from '@/lib/db/schema';
 import { BLOCK_LABELS } from '@/lib/domain/blocks';
@@ -73,11 +73,19 @@ function BlockCard({
           {/* Type-specific inline preview */}
           <BlockPreview block={block} />
 
-          {block.required && (
-            <span className="mt-1.5 inline-block text-[10px] text-destructive font-medium">
-              Obligatoire
-            </span>
-          )}
+          <div className="mt-1.5 flex items-center gap-2 flex-wrap">
+            {block.required && (
+              <span className="text-[10px] text-destructive font-medium">
+                Obligatoire
+              </span>
+            )}
+            {!!block.conditions && (
+              <span className="flex items-center gap-0.5 text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
+                <GitBranch className="h-2.5 w-2.5" />
+                Conditionnel
+              </span>
+            )}
+          </div>
         </div>
       </div>
     </button>

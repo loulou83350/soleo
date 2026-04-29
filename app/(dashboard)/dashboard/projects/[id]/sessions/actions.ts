@@ -179,7 +179,7 @@ export async function addBlockAction(
 export async function updateBlockAction(
   sessionId: number,
   blockId: number,
-  updates: { config?: Record<string, unknown>; required?: boolean }
+  updates: { config?: Record<string, unknown>; required?: boolean; conditions?: import('@/lib/domain/types').BlockVisibilityRule }
 ): Promise<ActionResult<void>> {
   const user = await getUser();
   if (!user) return { success: false, error: 'Non authentifié' };

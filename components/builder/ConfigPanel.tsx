@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   AlignLeft, AlignJustify, CheckSquare, BarChart2, Star,
   Gauge, LayoutGrid, Table2, Eye, Play, Type,
-  Plus, Trash2, Check, Loader2, AlertCircle, Upload,
+  Plus, Trash2, Check, Loader2, AlertCircle, Upload, GitBranch, X,
 } from 'lucide-react';
 import type { SessionBlock, SessionPageWithBlocks, BlockType } from '@/lib/db/schema';
 import type {
@@ -13,6 +13,7 @@ import type {
   FirstImpressionConfig, PrototypeTaskConfig,
 } from '@/lib/domain/blocks';
 import { BLOCK_LABELS } from '@/lib/domain/blocks';
+import type { BlockCondition, BlockVisibilityRule, ConditionOperator } from '@/lib/domain/types';
 import { updateBlockAction, deleteBlockAction, uploadBlockImageAction } from '@/app/(dashboard)/dashboard/projects/[id]/sessions/actions';
 
 // ─── Shared field components ──────────────────────────────────────────────────
@@ -550,6 +551,148 @@ function FirstImpressionForm({ config, onChange, sessionId }: { config: FirstImp
   );
 }
 
+// ─── Condition editor ─────────────────────────────────────────────────────────
+
+const OPERATOR_LABELS: Record<ConditionOperator, string> = {
+  answered: 'a été répondu',
+  not_answered: "n'a pas été répondu",
+  eq: 'est égal à',
+  neq: 'est différent de',
+};
+
+function ConditionEditor({
+  rule,
+  precedingBlocks,
+  onChange,
+}: {
+  rule: BlockVisibilityRule;
+  precedingBlocks: SessionBlock[];
+  onChange: (rule: BlockVisibilityRule) => void;
+}) {
+  const conditions = rule?.conditions ?? [];
+
+  function addCondition() {
+    const firstBlock = precedingBlocks[0];
+    if (!firstBlock) return;
+    const newCondition: BlockCondition = {
+      sourceBlockId: firstBlock.id,
+      operator: 'answered',
+    };
+    onChange({
+      match: rule?.match ?? 'all',
+      conditions: [...conditions, newCondition],
+    });
+  }
+
+  function removeCondition(idx: number) {
+    const next = conditions.filter((_, i) => i !== idx);
+    onChange(next.length === 0 ? null : { match: rule?.match ?? 'all', conditions: next });
+  }
+
+  function updateCondition(idx: number, patch: Partial<BlockCondition>) {
+    const next = conditions.map((c, i) => (i === idx ? { ...c, ...patch } : c));
+    onChange({ match: rule?.match ?? 'all', conditions: next });
+  }
+
+  function getBlockLabel(blockId: number) {
+    const b = precedingBlocks.find((b) => b.id === blockId);
+    if (!b) return `Bloc #${blockId}`;
+    const config = b.config as Record<string, unknown>;
+    const q = typeof config.question === 'string' ? config.question : '';
+    const label = BLOCK_LABELS[b.blockType as BlockType] ?? b.blockType;
+    return q.trim() ? `${label} — ${q.slice(0, 30)}${q.length > 30 ? '…' : ''}` : label;
+  }
+
+  const needsValue = (op: ConditionOperator) => op === 'eq' || op === 'neq';
+
+  return (
+    <div className="space-y-2">
+      {conditions.length > 1 && (
+        <div className="flex gap-1">
+          {(['all', 'any'] as const).map((m) => (
+            <button
+              key={m}
+              onClick={() => onChange({ match: m, conditions })}
+              className={`px-2 py-0.5 text-[10px] rounded border transition-colors ${
+                rule?.match === m
+                  ? 'border-foreground bg-foreground text-background'
+                  : 'border-border text-muted-foreground hover:border-foreground/40'
+              }`}
+            >
+              {m === 'all' ? 'ET (toutes)' : 'OU (une)'}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {conditions.map((cond, idx) => (
+        <div key={idx} className="border border-border rounded-lg p-2.5 space-y-1.5 bg-muted/20">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wide">
+              Condition {conditions.length > 1 ? idx + 1 : ''}
+            </span>
+            <button
+              onClick={() => removeCondition(idx)}
+              className="text-muted-foreground hover:text-destructive transition-colors"
+            >
+              <X className="h-3 w-3" />
+            </button>
+          </div>
+
+          {/* Source block */}
+          <select
+            value={cond.sourceBlockId}
+            onChange={(e) => updateCondition(idx, { sourceBlockId: Number(e.target.value) })}
+            className="w-full text-xs border border-border rounded px-2 py-1.5 bg-background focus:outline-none focus:ring-1 focus:ring-foreground/30"
+          >
+            {precedingBlocks.map((b) => (
+              <option key={b.id} value={b.id}>{getBlockLabel(b.id)}</option>
+            ))}
+          </select>
+
+          {/* Operator */}
+          <select
+            value={cond.operator}
+            onChange={(e) => updateCondition(idx, { operator: e.target.value as ConditionOperator, value: undefined })}
+            className="w-full text-xs border border-border rounded px-2 py-1.5 bg-background focus:outline-none focus:ring-1 focus:ring-foreground/30"
+          >
+            {(Object.keys(OPERATOR_LABELS) as ConditionOperator[]).map((op) => (
+              <option key={op} value={op}>{OPERATOR_LABELS[op]}</option>
+            ))}
+          </select>
+
+          {/* Value (only for eq/neq) */}
+          {needsValue(cond.operator) && (
+            <input
+              type="text"
+              value={cond.value ?? ''}
+              onChange={(e) => updateCondition(idx, { value: e.target.value })}
+              placeholder="Valeur à comparer…"
+              className="w-full text-xs border border-border rounded px-2 py-1.5 bg-background focus:outline-none focus:ring-1 focus:ring-foreground/30"
+            />
+          )}
+        </div>
+      ))}
+
+      {precedingBlocks.length > 0 && (
+        <button
+          onClick={addCondition}
+          className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+        >
+          <Plus className="h-3 w-3" />
+          Ajouter une condition
+        </button>
+      )}
+
+      {precedingBlocks.length === 0 && conditions.length === 0 && (
+        <p className="text-[11px] text-muted-foreground italic">
+          Aucun bloc précédent — ajoutez d'abord des blocs sur une page antérieure.
+        </p>
+      )}
+    </div>
+  );
+}
+
 // ─── Block type icon map ──────────────────────────────────────────────────────
 
 const BLOCK_ICONS: Record<BlockType, React.ComponentType<{ className?: string }>> = {
@@ -589,15 +732,19 @@ function SaveIndicator({ status }: { status: SaveStatus }) {
 interface BlockConfigFormProps {
   block: SessionBlock;
   sessionId: number;
+  precedingBlocks: SessionBlock[];
   onBlockDeleted: (blockId: number) => void;
-  onBlockUpdated: (blockId: number, updates: { config?: Record<string, unknown>; required?: boolean }) => void;
+  onBlockUpdated: (blockId: number, updates: { config?: Record<string, unknown>; required?: boolean; conditions?: BlockVisibilityRule }) => void;
 }
 
-function BlockConfigForm({ block, sessionId, onBlockDeleted, onBlockUpdated }: BlockConfigFormProps) {
+function BlockConfigForm({ block, sessionId, precedingBlocks, onBlockDeleted, onBlockUpdated }: BlockConfigFormProps) {
   const [config, setConfig] = useState<Record<string, unknown>>(
     block.config as Record<string, unknown>
   );
   const [required, setRequired] = useState(block.required);
+  const [conditions, setConditions] = useState<BlockVisibilityRule>(
+    (block.conditions as BlockVisibilityRule) ?? null
+  );
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle');
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -605,19 +752,21 @@ function BlockConfigForm({ block, sessionId, onBlockDeleted, onBlockUpdated }: B
   useEffect(() => {
     setConfig(block.config as Record<string, unknown>);
     setRequired(block.required);
+    setConditions((block.conditions as BlockVisibilityRule) ?? null);
     setSaveStatus('idle');
   }, [block.id]);
 
   const save = useCallback(
-    async (newConfig: Record<string, unknown>, newRequired: boolean) => {
+    async (newConfig: Record<string, unknown>, newRequired: boolean, newConditions: BlockVisibilityRule) => {
       setSaveStatus('saving');
       const result = await updateBlockAction(sessionId, block.id, {
         config: newConfig,
         required: newRequired,
+        conditions: newConditions,
       });
       setSaveStatus(result.success ? 'saved' : 'error');
       if (result.success) {
-        onBlockUpdated(block.id, { config: newConfig, required: newRequired });
+        onBlockUpdated(block.id, { config: newConfig, required: newRequired, conditions: newConditions });
         setTimeout(() => setSaveStatus('idle'), 2000);
       }
     },
@@ -627,13 +776,19 @@ function BlockConfigForm({ block, sessionId, onBlockDeleted, onBlockUpdated }: B
   function handleConfigChange(newConfig: Record<string, unknown>) {
     setConfig(newConfig);
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => save(newConfig, required), 1000);
+    debounceRef.current = setTimeout(() => save(newConfig, required, conditions), 1000);
   }
 
   function handleRequiredChange(newRequired: boolean) {
     setRequired(newRequired);
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => save(config, newRequired), 1000);
+    debounceRef.current = setTimeout(() => save(config, newRequired, conditions), 1000);
+  }
+
+  function handleConditionsChange(newConditions: BlockVisibilityRule) {
+    setConditions(newConditions);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => save(config, required, newConditions), 1000);
   }
 
   async function handleDelete() {
@@ -676,6 +831,29 @@ function BlockConfigForm({ block, sessionId, onBlockDeleted, onBlockUpdated }: B
               label="Réponse obligatoire"
               checked={required}
               onChange={handleRequiredChange}
+            />
+          </div>
+        )}
+
+        {/* Conditions — hidden for content blocks */}
+        {blockType !== 'content' && (
+          <div className="pb-3 border-b border-border space-y-2">
+            <div className="flex items-center gap-1.5">
+              <GitBranch className="h-3.5 w-3.5 text-muted-foreground" />
+              <span className="text-xs font-medium text-foreground">Logique d'affichage</span>
+              {conditions && (
+                <span className="ml-auto text-[10px] px-1.5 py-0.5 bg-muted rounded text-muted-foreground">
+                  {conditions.conditions.length} condition{conditions.conditions.length > 1 ? 's' : ''}
+                </span>
+              )}
+            </div>
+            {!conditions && (
+              <p className="text-xs text-muted-foreground">Toujours affiché</p>
+            )}
+            <ConditionEditor
+              rule={conditions}
+              precedingBlocks={precedingBlocks}
+              onChange={handleConditionsChange}
             />
           </div>
         )}
@@ -760,14 +938,16 @@ interface ConfigPanelProps {
   page: SessionPageWithBlocks | null;
   selectedBlockId: number | null;
   sessionId: number;
+  precedingBlocks: SessionBlock[];
   onBlockDeleted: (blockId: number) => void;
-  onBlockUpdated: (blockId: number, updates: { config?: Record<string, unknown>; required?: boolean }) => void;
+  onBlockUpdated: (blockId: number, updates: { config?: Record<string, unknown>; required?: boolean; conditions?: BlockVisibilityRule }) => void;
 }
 
 export function ConfigPanel({
   page,
   selectedBlockId,
   sessionId,
+  precedingBlocks,
   onBlockDeleted,
   onBlockUpdated,
 }: ConfigPanelProps) {
@@ -800,6 +980,7 @@ export function ConfigPanel({
           key={selectedBlock.id}
           block={selectedBlock}
           sessionId={sessionId}
+          precedingBlocks={precedingBlocks}
           onBlockDeleted={onBlockDeleted}
           onBlockUpdated={onBlockUpdated}
         />

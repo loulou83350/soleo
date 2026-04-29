@@ -22,6 +22,33 @@ export function BuilderClient({ session, projectId }: BuilderClientProps) {
 
   const activePage = pages.find((p) => p.id === activePageId) ?? null;
 
+  /**
+   * Blocs précédant le bloc sélectionné — utilisés comme sources de conditions.
+   * = tous les blocs des pages question avant la page active
+   *   + les blocs avant le bloc sélectionné sur la même page.
+   * Les blocs de type 'content' sont exclus (pas de réponse attendue).
+   */
+  const precedingBlocks = (() => {
+    if (!activePage || !selectedBlockId) return [];
+    const result: SessionBlock[] = [];
+    for (const page of pages) {
+      if (page.pageType !== 'question') continue;
+      if (page.id === activePage.id) {
+        // même page — blocs avant le bloc sélectionné
+        for (const b of page.blocks) {
+          if (b.id === selectedBlockId) break;
+          if (b.blockType !== 'content') result.push(b);
+        }
+        break;
+      }
+      // pages précédentes
+      for (const b of page.blocks) {
+        if (b.blockType !== 'content') result.push(b);
+      }
+    }
+    return result;
+  })();
+
   // ─── Page callbacks ────────────────────────────────────────────────────────
 
   function handleSelectPage(pageId: number) {
@@ -59,7 +86,7 @@ export function BuilderClient({ session, projectId }: BuilderClientProps) {
   }, []);
 
   const handleBlockUpdated = useCallback(
-    (blockId: number, updates: { config?: Record<string, unknown>; required?: boolean }) => {
+    (blockId: number, updates: { config?: Record<string, unknown>; required?: boolean; conditions?: import('@/lib/domain/types').BlockVisibilityRule }) => {
       setPages((prev) =>
         prev.map((p) => ({
           ...p,
@@ -117,6 +144,7 @@ export function BuilderClient({ session, projectId }: BuilderClientProps) {
           page={activePage}
           selectedBlockId={selectedBlockId}
           sessionId={session.id}
+          precedingBlocks={precedingBlocks}
           onBlockDeleted={handleBlockDeleted}
           onBlockUpdated={handleBlockUpdated}
         />

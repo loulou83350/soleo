@@ -2,6 +2,7 @@ import { eq, and, max } from 'drizzle-orm';
 import { db } from '@/lib/db/drizzle';
 import { sessions, sessionPages, sessionBlocks, SessionBlock } from '@/lib/db/schema';
 import type { BlockType, BlockConfig } from '@/lib/db/schema';
+import type { BlockVisibilityRule } from '@/lib/domain/types';
 import { BLOCK_DEFAULTS } from '@/lib/domain/blocks';
 
 // ─── Internal: team-scoped block lookup ──────────────────────────────────────
@@ -85,7 +86,7 @@ export async function addBlock(
 export async function updateBlock(
   blockId: number,
   teamId: number,
-  updates: { config?: BlockConfig; required?: boolean }
+  updates: { config?: BlockConfig; required?: boolean; conditions?: BlockVisibilityRule }
 ): Promise<void> {
   const row = await getBlockWithSession(blockId);
   if (!row || row.teamId !== teamId) throw new Error('Bloc introuvable');
@@ -93,6 +94,7 @@ export async function updateBlock(
   const setValues: Record<string, unknown> = { updatedAt: new Date() };
   if (updates.config !== undefined) setValues.config = updates.config;
   if (updates.required !== undefined) setValues.required = updates.required;
+  if ('conditions' in updates) setValues.conditions = updates.conditions ?? null;
 
   await db
     .update(sessionBlocks)
