@@ -10,7 +10,7 @@ import type { SessionBlock, SessionPageWithBlocks, BlockType } from '@/lib/db/sc
 import type {
   ContentConfig, ShortTextConfig, LongTextConfig, McqConfig, LikertConfig,
   RatingConfig, NpsConfig, CardSortConfig, MatrixConfig,
-  FirstImpressionConfig,
+  FirstImpressionConfig, PrototypeTaskConfig,
 } from '@/lib/domain/blocks';
 import { BLOCK_LABELS } from '@/lib/domain/blocks';
 import { updateBlockAction, deleteBlockAction, uploadBlockImageAction } from '@/app/(dashboard)/dashboard/projects/[id]/sessions/actions';
@@ -491,6 +491,33 @@ function MatrixForm({ config, onChange }: { config: MatrixConfig; onChange: (c: 
   );
 }
 
+function PrototypeTaskForm({ config, onChange }: { config: PrototypeTaskConfig; onChange: (c: PrototypeTaskConfig) => void }) {
+  return (
+    <div className="space-y-3">
+      <div>
+        <Label>URL du prototype</Label>
+        <TextInput
+          value={config.url}
+          onChange={(v) => onChange({ ...config, url: v })}
+          placeholder="https://www.figma.com/proto/… ou URL live"
+        />
+        <p className="mt-1 text-[11px] text-muted-foreground">
+          Figma Prototype, Marvel, InVision, ou n'importe quelle URL accessible publiquement.
+        </p>
+      </div>
+      <div>
+        <Label>Instructions pour le participant</Label>
+        <TextInput
+          value={config.instructions}
+          onChange={(v) => onChange({ ...config, instructions: v })}
+          placeholder="Ex: Essayez de trouver la page de paiement…"
+          multiline
+        />
+      </div>
+    </div>
+  );
+}
+
 function FirstImpressionForm({ config, onChange, sessionId }: { config: FirstImpressionConfig; onChange: (c: FirstImpressionConfig) => void; sessionId: number }) {
   return (
     <div className="space-y-3">
@@ -714,6 +741,12 @@ function BlockConfigForm({ block, sessionId, onBlockDeleted, onBlockUpdated }: B
             config={config as FirstImpressionConfig}
             onChange={(c) => handleConfigChange(c as Record<string, unknown>)}
             sessionId={sessionId}
+          />
+        )}
+        {blockType === 'prototype_task' && (
+          <PrototypeTaskForm
+            config={config as PrototypeTaskConfig}
+            onChange={(c) => handleConfigChange(c as Record<string, unknown>)}
           />
         )}
       </div>

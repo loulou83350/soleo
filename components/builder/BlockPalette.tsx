@@ -45,7 +45,7 @@ interface BlockPaletteProps {
 export function BlockPalette({ onSelect, onClose, isLoading }: BlockPaletteProps) {
   const [focusIdx, setFocusIdx] = useState(0);
   const panelRef = useRef<HTMLDivElement>(null);
-  const activeTypes = BLOCK_PALETTE_ORDER.filter((t) => t !== 'prototype_task');
+  const activeTypes = BLOCK_PALETTE_ORDER;
   const allTypes = BLOCK_PALETTE_ORDER;
 
   // Trap focus and handle keyboard
@@ -119,7 +119,7 @@ export function BlockPalette({ onSelect, onClose, isLoading }: BlockPaletteProps
         {/* Grid */}
         <div className="p-3 grid grid-cols-2 gap-1.5">
           {allTypes.map((blockType, idx) => {
-            const isDisabled = blockType === 'prototype_task';
+            const isDisabled = false;
             const Icon = BLOCK_ICONS[blockType];
             const isFocused = !isDisabled && activeTypes[focusIdx] === blockType;
 

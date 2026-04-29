@@ -197,6 +197,21 @@ function BlockPreview({ block }: { block: SessionBlock }) {
         </div>
       );
     }
+    case 'prototype_task': {
+      const url = typeof config.url === 'string' ? config.url : '';
+      let domain = '';
+      try { domain = url ? new URL(url).hostname : ''; } catch { /* ignore */ }
+      return (
+        <div className="mt-1.5 flex items-center gap-2">
+          <div className="h-7 w-7 rounded border border-border bg-muted flex items-center justify-center shrink-0">
+            <Play className="h-3 w-3 text-muted-foreground/60" />
+          </div>
+          <span className="text-xs text-muted-foreground truncate">
+            {domain || (url ? url : 'URL non définie')}
+          </span>
+        </div>
+      );
+    }
     default:
       return null;
   }
