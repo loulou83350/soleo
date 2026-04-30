@@ -38,7 +38,11 @@ function SessionCard({ session, projectId, onDeleted }: {
   return (
     <div className="relative group border border-border rounded-lg hover:border-foreground/20 transition-colors">
       <Link
-        href={`/dashboard/projects/${projectId}/sessions/${session.id}/builder`}
+        href={
+          session.status === 'draft'
+            ? `/dashboard/projects/${projectId}/sessions/${session.id}/builder`
+            : `/dashboard/projects/${projectId}/sessions/${session.id}`
+        }
         className="block p-4"
       >
         <div className="flex items-start justify-between gap-3">
