@@ -4,7 +4,7 @@
 //   2. AI_PROVIDER env var (anthropic | gemini)
 //   3. First key found among ANTHROPIC_API_KEY / GEMINI_API_KEY
 
-export type AIProvider = 'anthropic' | 'gemini';
+export type AIProvider = 'anthropic' | 'gemini' | 'openai';
 
 export interface TagSuggestion {
   label: string;
@@ -47,14 +47,16 @@ export function getAvailableProviders(): AIProvider[] {
   const out: AIProvider[] = [];
   if (process.env.ANTHROPIC_API_KEY) out.push('anthropic');
   if (process.env.GEMINI_API_KEY) out.push('gemini');
+  if (process.env.OPENAI_API_KEY) out.push('openai');
   return out;
 }
 
 export function getActiveProvider(): AIProvider | null {
   const env = process.env.AI_PROVIDER as AIProvider | undefined;
-  if (env === 'anthropic' || env === 'gemini') {
+  if (env === 'anthropic' || env === 'gemini' || env === 'openai') {
     if (env === 'anthropic' && process.env.ANTHROPIC_API_KEY) return 'anthropic';
     if (env === 'gemini' && process.env.GEMINI_API_KEY) return 'gemini';
+    if (env === 'openai' && process.env.OPENAI_API_KEY) return 'openai';
   }
   const available = getAvailableProviders();
   return available[0] ?? null;
@@ -70,7 +72,12 @@ export async function suggestTagsForResponse(
     throw new Error('No AI provider configured (ANTHROPIC_API_KEY or GEMINI_API_KEY)');
   }
   const prompt = PROMPT_TEMPLATE(params);
-  const raw = provider === 'anthropic' ? await callAnthropic(prompt) : await callGemini(prompt);
+  let raw: string;
+  switch (provider) {
+    case 'anthropic': raw = await callAnthropic(prompt); break;
+    case 'gemini':    raw = await callGemini(prompt);    break;
+    case 'openai':    raw = await callOpenAI(prompt);    break;
+  }
   return parseTagsResponse(raw);
 }
 
@@ -135,6 +142,38 @@ async function callGemini(prompt: string): Promise<string> {
     candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
   };
   return data.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
+}
+
+// ─── OpenAI ──────────────────────────────────────────────────────────────────
+
+async function callOpenAI(prompt: string): Promise<string> {
+  const key = process.env.OPENAI_API_KEY;
+  if (!key) throw new Error('OPENAI_API_KEY missing');
+
+  const res = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      authorization: `Bearer ${key}`,
+    },
+    body: JSON.stringify({
+      // Small + fast model — sufficient for short JSON output
+      model: process.env.OPENAI_MODEL ?? 'gpt-4o-mini',
+      max_tokens: 400,
+      temperature: 0.2,
+      response_format: { type: 'json_object' },
+      messages: [{ role: 'user', content: prompt }],
+    }),
+  });
+
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`OpenAI API ${res.status}: ${body.slice(0, 200)}`);
+  }
+  const data = (await res.json()) as {
+    choices?: Array<{ message?: { content?: string } }>;
+  };
+  return data.choices?.[0]?.message?.content ?? '';
 }
 
 // ─── Response parsing (lenient) ──────────────────────────────────────────────
