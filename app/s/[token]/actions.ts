@@ -118,12 +118,20 @@ export async function completeSessionAction(
  */
 async function notifySessionOwners(sessionId: number): Promise<void> {
   const ctx = await getSessionNotificationContext(sessionId);
-  if (!ctx || ctx.ownerEmails.length === 0) return;
+  if (!ctx || ctx.ownerEmails.length === 0) {
+    console.log('[completion-email] no owners to notify for session', sessionId);
+    return;
+  }
 
   const participantNumber = await countCompletedParticipants(sessionId);
+  console.log(
+    `[completion-email] sending to ${ctx.ownerEmails.length} owner(s):`,
+    ctx.ownerEmails.join(', ')
+  );
 
-  // Send in parallel; individual failures don't abort the whole batch.
-  await Promise.allSettled(
+  // Send in parallel; individual failures don't abort the whole batch
+  // but each one is logged so we don't lose track of Resend rejections.
+  const results = await Promise.allSettled(
     ctx.ownerEmails.map((email) =>
       sendSessionCompletionEmail({
         to: email,
@@ -135,6 +143,15 @@ async function notifySessionOwners(sessionId: number): Promise<void> {
       })
     )
   );
+
+  results.forEach((result, idx) => {
+    const email = ctx.ownerEmails[idx];
+    if (result.status === 'rejected') {
+      console.error(`[completion-email] FAILED for ${email}:`, result.reason);
+    } else {
+      console.log(`[completion-email] sent OK to ${email}`);
+    }
+  });
 }
 
 // ─── Gate: password check ────────────────────────────────────────────────────
