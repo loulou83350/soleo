@@ -39,6 +39,7 @@
     "radix-ui": "^1.4.2",
     "react": "19.1.0",
     "react-dom": "19.1.0",
+    "react-markdown": "^10.1.0",
     "resend": "^6.12.2",
     "server-only": "^0.0.1",
     "sonner": "^2.0.7",

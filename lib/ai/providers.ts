@@ -176,6 +176,207 @@ async function callOpenAI(prompt: string): Promise<string> {
   return data.choices?.[0]?.message?.content ?? '';
 }
 
+// ─── Findings report generation (Story 6.1) ─────────────────────────────────
+
+export interface FindingsResponseInput {
+  /** block_responses.id — the AI MUST cite this id when referencing this answer */
+  id: number;
+  blockId: number;
+  text: string;
+}
+
+export interface FindingsBlockInput {
+  id: number;
+  blockType: string;
+  question: string;
+  responses: FindingsResponseInput[];
+  /** Optional aggregate hint: "Avg 4.2/5", "Top option: X (12 votes)", "NPS +12" */
+  aggregateHint?: string;
+}
+
+export interface GenerateFindingsParams {
+  sessionTitle: string;
+  participantCount: number;
+  blocks: FindingsBlockInput[];
+  /** Tag distribution per block: blockId → "tag (count), tag (count)" */
+  tagsByBlock?: Record<number, string>;
+  provider?: AIProvider;
+  /** Cap responses per block to this many (cost control). Default 80. */
+  maxResponsesPerBlock?: number;
+}
+
+/**
+ * Builds a prompt that instructs the model to produce structured markdown
+ * with `{r:ID}` citation tokens after every claim/quote, and never to
+ * fabricate IDs.
+ */
+function buildFindingsPrompt(p: GenerateFindingsParams): string {
+  const cap = p.maxResponsesPerBlock ?? 80;
+  const blocksJson = p.blocks
+    .map((b) => {
+      // Truncate long lists; sample the longest answers (most informative)
+      const sorted = [...b.responses].sort(
+        (a, b2) => b2.text.length - a.text.length
+      );
+      const sample = sorted.slice(0, cap);
+      const responsesText = sample
+        .map(
+          (r) =>
+            `    - id=${r.id}: ${JSON.stringify(r.text).slice(0, 800)}`
+        )
+        .join('\n');
+      const tagInfo = p.tagsByBlock?.[b.id]
+        ? `\n  Tags: ${p.tagsByBlock[b.id]}`
+        : '';
+      const aggInfo = b.aggregateHint ? `\n  ${b.aggregateHint}` : '';
+      return `Question (block_id=${b.id}, type=${b.blockType}): "${b.question}"${aggInfo}${tagInfo}\n  Réponses (${b.responses.length}, montrant ${sample.length}) :\n${responsesText}`;
+    })
+    .join('\n\n');
+
+  return `Tu es analyste UX senior. Tu produis une synthèse écrite des résultats d'une étude utilisateur.
+
+ÉTUDE
+- Titre : "${p.sessionTitle}"
+- ${p.participantCount} participants ont répondu
+
+DONNÉES PAR QUESTION
+${blocksJson}
+
+RÈGLES STRICTES — À RESPECTER ABSOLUMENT
+1. Tu écris en français.
+2. À CHAQUE claim, statistique, ou citation, tu attaches la ou les sources au format \`{r:ID}\` immédiatement après la phrase. Plusieurs sources possibles, exemple : \`Plusieurs participants ont signalé une difficulté {r:42}{r:57}{r:89}.\`
+3. N'utilise QUE les ids déjà listés dans DONNÉES. Tu n'inventes JAMAIS d'id.
+4. Tu cites au moins 2-3 sources par paragraphe principal.
+5. Tu produis du markdown avec exactement ces sections :
+   # Synthèse
+   (1 paragraphe d'intro avec les chiffres clés et 2-3 citations)
+
+   ## Constats principaux
+   (3 à 5 sous-sections \`### \` numérotées avec les patterns observés, citations à l'appui)
+
+   ## Recommandations
+   (liste à puces avec des actions concrètes, chacune ancrée à au moins 1 source)
+
+6. Tu ne mets PAS de bloc de citations en bas. Les sources sont uniquement inline via {r:ID}.
+7. Tu ne cites pas une réponse vide ou inexploitable.
+8. Sortie : MARKDOWN UNIQUEMENT, pas d'explication, pas de préambule.`;
+}
+
+/**
+ * Validate / sanitize the model's output:
+ *  - Strip code fences if any
+ *  - Remove {r:ID} tokens whose ID isn't in the allowed set (hallucination)
+ */
+export function validateFindingsMarkdown(
+  markdown: string,
+  validResponseIds: Set<number>
+): string {
+  let text = markdown.trim();
+  if (text.startsWith('```')) {
+    text = text.replace(/^```(?:markdown|md)?\s*/, '').replace(/```\s*$/, '');
+  }
+  // Strip invalid tokens
+  return text.replace(/\{r:(\d+)\}/g, (full, id) => {
+    return validResponseIds.has(Number(id)) ? full : '';
+  });
+}
+
+export async function generateFindingsReport(
+  params: GenerateFindingsParams
+): Promise<string> {
+  const provider = params.provider ?? getActiveProvider();
+  if (!provider) {
+    throw new Error('No AI provider configured (ANTHROPIC_API_KEY, GEMINI_API_KEY or OPENAI_API_KEY)');
+  }
+  const prompt = buildFindingsPrompt(params);
+
+  let raw: string;
+  switch (provider) {
+    case 'anthropic': raw = await callAnthropicLong(prompt); break;
+    case 'gemini':    raw = await callGeminiLong(prompt);    break;
+    case 'openai':    raw = await callOpenAILong(prompt);    break;
+  }
+  return raw;
+}
+
+// Long-output variants (~3000 tokens, vs 400 for tag suggestion).
+// Same endpoints, larger max_tokens, no JSON mode (output is markdown).
+
+async function callAnthropicLong(prompt: string): Promise<string> {
+  const key = process.env.ANTHROPIC_API_KEY;
+  if (!key) throw new Error('ANTHROPIC_API_KEY missing');
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'x-api-key': key,
+      'anthropic-version': '2023-06-01',
+    },
+    body: JSON.stringify({
+      model: 'claude-haiku-4-5',
+      max_tokens: 3000,
+      temperature: 0.4,
+      messages: [{ role: 'user', content: prompt }],
+    }),
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`Anthropic API ${res.status}: ${body.slice(0, 200)}`);
+  }
+  const data = (await res.json()) as { content: Array<{ type: string; text?: string }> };
+  return data.content?.find((c) => c.type === 'text')?.text ?? '';
+}
+
+async function callGeminiLong(prompt: string): Promise<string> {
+  const key = process.env.GEMINI_API_KEY;
+  if (!key) throw new Error('GEMINI_API_KEY missing');
+  const res = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${key}`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { temperature: 0.4, maxOutputTokens: 3000 },
+      }),
+    }
+  );
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`Gemini API ${res.status}: ${body.slice(0, 200)}`);
+  }
+  const data = (await res.json()) as {
+    candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+  };
+  return data.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
+}
+
+async function callOpenAILong(prompt: string): Promise<string> {
+  const key = process.env.OPENAI_API_KEY;
+  if (!key) throw new Error('OPENAI_API_KEY missing');
+  const res = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      authorization: `Bearer ${key}`,
+    },
+    body: JSON.stringify({
+      model: process.env.OPENAI_MODEL ?? 'gpt-4o-mini',
+      max_tokens: 3000,
+      temperature: 0.4,
+      messages: [{ role: 'user', content: prompt }],
+    }),
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`OpenAI API ${res.status}: ${body.slice(0, 200)}`);
+  }
+  const data = (await res.json()) as {
+    choices?: Array<{ message?: { content?: string } }>;
+  };
+  return data.choices?.[0]?.message?.content ?? '';
+}
+
 // ─── Response parsing (lenient) ──────────────────────────────────────────────
 
 function parseTagsResponse(raw: string): TagSuggestion[] {

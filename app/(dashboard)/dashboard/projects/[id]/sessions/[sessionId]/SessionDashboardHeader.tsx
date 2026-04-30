@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { Check, Copy, Download, Pencil } from 'lucide-react';
+import { Check, Copy, Download, Pencil, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 interface SessionDashboardHeaderProps {
@@ -58,6 +58,14 @@ export function SessionDashboardHeader({
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
+          <Button asChild size="sm" className="bg-foreground text-background hover:opacity-90">
+            <Link
+              href={`/dashboard/projects/${projectId}/sessions/${sessionId}/findings`}
+            >
+              <Sparkles className="h-3.5 w-3.5 mr-1.5" />
+              Findings
+            </Link>
+          </Button>
           <Button asChild variant="outline" size="sm">
             {/* Native browser download — no JS state, just a link */}
             <a
@@ -65,7 +73,7 @@ export function SessionDashboardHeader({
               download
             >
               <Download className="h-3.5 w-3.5 mr-1.5" />
-              Exporter CSV
+              CSV
             </a>
           </Button>
           <Button asChild variant="outline" size="sm">

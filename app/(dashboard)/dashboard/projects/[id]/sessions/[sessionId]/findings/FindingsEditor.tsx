@@ -1,0 +1,344 @@
+'use client';
+
+import { useState, useTransition, useEffect, useRef } from 'react';
+import { Sparkles, Loader2, Check, Copy, Globe, Lock, ExternalLink, ChevronsUpDown } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { MarkdownWithCitations } from '@/components/findings/MarkdownWithCitations';
+import type { CitationSource } from '@/components/findings/CitationPill';
+import {
+  saveFindingAction,
+  generateFindingDraftAction,
+  publishFindingAction,
+  unpublishFindingAction,
+  revalidateFindingPath,
+} from './actions';
+import type { SessionFinding } from '@/lib/db/schema';
+import type { AIProvider } from '@/lib/ai/providers';
+
+interface Props {
+  finding: SessionFinding;
+  /** Citation sources serialized as [responseId, source][] tuples */
+  sources: Array<[number, CitationSource]>;
+  availableProviders: AIProvider[];
+  activeProvider: AIProvider | null;
+  context: { projectId: number; sessionId: number };
+}
+
+type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
+
+export function FindingsEditor({
+  finding,
+  sources: sourcesEntries,
+  availableProviders,
+  activeProvider,
+  context,
+}: Props) {
+  const [title, setTitle] = useState(finding.title);
+  const [body, setBody] = useState(finding.bodyMarkdown);
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle');
+  const [isPublished, setIsPublished] = useState(finding.isPublished);
+  const [publicToken, setPublicToken] = useState<string | null>(finding.publicToken);
+
+  const [generating, setGenerating] = useState(false);
+  const [genError, setGenError] = useState<string | null>(null);
+  const [provider, setProvider] = useState<AIProvider | null>(activeProvider);
+
+  const [copied, setCopied] = useState(false);
+  const [isPending, startTransition] = useTransition();
+
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const dirtyRef = useRef(false);
+
+  const sources = new Map(sourcesEntries);
+
+  // ─── Auto-save title + body (debounced 1s) ────────────────────────────────
+
+  useEffect(() => {
+    if (!dirtyRef.current) {
+      dirtyRef.current = true;
+      return;
+    }
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    setSaveStatus('saving');
+    debounceRef.current = setTimeout(async () => {
+      const res = await saveFindingAction(finding.id, {
+        title,
+        bodyMarkdown: body,
+      });
+      setSaveStatus(res.success ? 'saved' : 'error');
+      if (res.success) setTimeout(() => setSaveStatus('idle'), 1500);
+    }, 1000);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [title, body]);
+
+  // ─── AI generation ────────────────────────────────────────────────────────
+
+  async function handleGenerate() {
+    setGenerating(true);
+    setGenError(null);
+    const res = await generateFindingDraftAction(
+      context.sessionId,
+      provider ?? undefined
+    );
+    setGenerating(false);
+    if (!res.success || !res.data) {
+      setGenError(res.success ? null : (res.error ?? 'Erreur'));
+      return;
+    }
+    setBody(res.data.markdown);
+    // Skip the next debounced save (the action already saved)
+    dirtyRef.current = false;
+  }
+
+  // ─── Publish / unpublish ──────────────────────────────────────────────────
+
+  function handlePublish() {
+    startTransition(async () => {
+      const res = await publishFindingAction(finding.id);
+      if (res.success && res.data) {
+        setIsPublished(true);
+        setPublicToken(res.data.token);
+        revalidateFindingPath(context.projectId, context.sessionId);
+      }
+    });
+  }
+
+  function handleUnpublish() {
+    startTransition(async () => {
+      const res = await unpublishFindingAction(finding.id);
+      if (res.success) {
+        setIsPublished(false);
+        revalidateFindingPath(context.projectId, context.sessionId);
+      }
+    });
+  }
+
+  // ─── Copy public link ─────────────────────────────────────────────────────
+
+  async function handleCopyLink() {
+    if (!publicToken) return;
+    const url = `${window.location.origin}/findings/${publicToken}`;
+    await navigator.clipboard.writeText(url);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
+
+  // ─── Render ────────────────────────────────────────────────────────────────
+
+  const hasBody = body.trim().length > 0;
+
+  return (
+    <div className="space-y-4">
+      {/* Toolbar */}
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-2">
+          {availableProviders.length > 0 && (
+            <Button
+              type="button"
+              size="sm"
+              onClick={handleGenerate}
+              disabled={generating}
+              className="bg-foreground text-background hover:opacity-90"
+            >
+              {generating ? (
+                <>
+                  <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                  Génération…
+                </>
+              ) : (
+                <>
+                  <Sparkles className="h-3.5 w-3.5 mr-1.5" />
+                  {hasBody ? 'Régénérer le brouillon' : 'Générer un brouillon IA'}
+                </>
+              )}
+            </Button>
+          )}
+          {availableProviders.length > 1 && (
+            <ProviderToggle
+              value={provider ?? availableProviders[0]}
+              onChange={setProvider}
+              options={availableProviders}
+            />
+          )}
+
+          {/* Save status */}
+          <span className="text-xs text-muted-foreground ml-2 tabular-nums">
+            {saveStatus === 'saving' && 'Enregistrement…'}
+            {saveStatus === 'saved' && '✓ Enregistré'}
+            {saveStatus === 'error' && (
+              <span className="text-destructive">Erreur de sauvegarde</span>
+            )}
+          </span>
+        </div>
+
+        <div className="flex items-center gap-2">
+          {isPublished && publicToken && (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={handleCopyLink}
+            >
+              {copied ? (
+                <>
+                  <Check className="h-3.5 w-3.5 mr-1.5" />
+                  Copié
+                </>
+              ) : (
+                <>
+                  <Copy className="h-3.5 w-3.5 mr-1.5" />
+                  Copier le lien
+                </>
+              )}
+            </Button>
+          )}
+          {isPublished && publicToken && (
+            <Button type="button" size="sm" variant="outline" asChild>
+              <a
+                href={`/findings/${publicToken}`}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <ExternalLink className="h-3.5 w-3.5 mr-1.5" />
+                Voir public
+              </a>
+            </Button>
+          )}
+          {isPublished ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={handleUnpublish}
+              disabled={isPending}
+            >
+              <Lock className="h-3.5 w-3.5 mr-1.5" />
+              Dépublier
+            </Button>
+          ) : (
+            <Button
+              type="button"
+              size="sm"
+              onClick={handlePublish}
+              disabled={isPending || !hasBody}
+            >
+              <Globe className="h-3.5 w-3.5 mr-1.5" />
+              Publier
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {genError && (
+        <div className="border border-destructive/30 bg-destructive/5 text-destructive text-sm rounded-md px-3 py-2">
+          {genError}
+        </div>
+      )}
+
+      {/* Title */}
+      <input
+        type="text"
+        value={title}
+        onChange={(e) => setTitle(e.target.value)}
+        placeholder="Titre du rapport…"
+        className="w-full text-2xl font-semibold border-0 border-b border-border focus:border-foreground/40 focus:outline-none bg-transparent py-2 transition-colors placeholder:text-muted-foreground/50"
+      />
+
+      {/* Split view */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 min-h-[60vh]">
+        <div className="border border-border rounded-lg p-4 bg-muted/20">
+          <p className="text-xs uppercase tracking-wide text-muted-foreground mb-2">
+            Markdown
+          </p>
+          <textarea
+            value={body}
+            onChange={(e) => setBody(e.target.value)}
+            placeholder={
+              availableProviders.length > 0
+                ? 'Cliquez sur « Générer un brouillon IA » pour démarrer, ou écrivez en markdown directement.'
+                : 'Aucun provider IA configuré. Écrivez votre rapport en markdown directement.'
+            }
+            className="w-full h-full min-h-[55vh] resize-none font-mono text-sm bg-transparent border-0 focus:outline-none text-foreground leading-relaxed"
+          />
+        </div>
+        <div className="border border-border rounded-lg p-6 bg-background overflow-y-auto max-h-[80vh]">
+          <p className="text-xs uppercase tracking-wide text-muted-foreground mb-2">
+            Aperçu
+          </p>
+          {hasBody ? (
+            <MarkdownWithCitations
+              markdown={body}
+              sources={sources}
+              withParticipantLink={true}
+            />
+          ) : (
+            <p className="text-sm text-muted-foreground italic">
+              L&apos;aperçu apparaîtra ici dès que vous aurez du contenu.
+            </p>
+          )}
+        </div>
+      </div>
+
+      <p className="text-xs text-muted-foreground">
+        💡 Insérez une citation manuellement avec la syntaxe{' '}
+        <code className="px-1 py-0.5 bg-muted rounded text-[11px]">
+          {'{r:ID}'}
+        </code>{' '}
+        — où ID est l&apos;identifiant d&apos;une réponse. Les IDs invalides
+        sont supprimés automatiquement.
+      </p>
+    </div>
+  );
+}
+
+// ─── Provider toggle ─────────────────────────────────────────────────────────
+
+function ProviderToggle({
+  value,
+  onChange,
+  options,
+}: {
+  value: AIProvider;
+  onChange: (p: AIProvider) => void;
+  options: AIProvider[];
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    function onClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener('mousedown', onClick);
+    return () => document.removeEventListener('mousedown', onClick);
+  }, [open]);
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wide text-muted-foreground hover:text-foreground"
+      >
+        {value} <ChevronsUpDown className="h-3 w-3" />
+      </button>
+      {open && (
+        <div className="absolute z-10 right-0 top-6 border border-border bg-background rounded-md shadow-md py-1 min-w-[120px]">
+          {options.map((p) => (
+            <button
+              key={p}
+              type="button"
+              onClick={() => {
+                onChange(p);
+                setOpen(false);
+              }}
+              className="w-full flex items-center justify-between gap-2 text-xs px-2 py-1 hover:bg-muted"
+            >
+              {p}
+              {p === value && <Check className="h-3 w-3" />}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}

@@ -381,3 +381,32 @@ export type NewInsightTag = typeof insightTags.$inferInsert;
 export type BlockResponseTag = typeof blockResponseTags.$inferSelect;
 export type NewBlockResponseTag = typeof blockResponseTags.$inferInsert;
 export type TagSource = 'manual' | 'ai_auto' | 'ai_suggested';
+
+// ─── Session Findings (Story 6.1) ────────────────────────────────────────────
+
+export const sessionFindings = pgTable('session_findings', {
+  id: serial('id').primaryKey(),
+  sessionId: integer('session_id')
+    .notNull()
+    .unique()
+    .references(() => sessions.id, { onDelete: 'cascade' }),
+  title: varchar('title', { length: 200 }).notNull().default(''),
+  // Markdown with inline citation tokens like {r:42} pointing to block_responses.id
+  bodyMarkdown: text('body_markdown').notNull().default(''),
+  aiGenerated: boolean('ai_generated').notNull().default(false),
+  isPublished: boolean('is_published').notNull().default(false),
+  publicToken: varchar('public_token', { length: 128 }).unique(),
+  publishedAt: timestamp('published_at'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+});
+
+export const sessionFindingsRelations = relations(sessionFindings, ({ one }) => ({
+  session: one(sessions, {
+    fields: [sessionFindings.sessionId],
+    references: [sessions.id],
+  }),
+}));
+
+export type SessionFinding = typeof sessionFindings.$inferSelect;
+export type NewSessionFinding = typeof sessionFindings.$inferInsert;
