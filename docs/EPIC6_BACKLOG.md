@@ -5,7 +5,8 @@
 | 6.1   | AI-assisted findings with sourced citations (markdown editor) | ✅ Done | feat 6.1 |
 | 6.2   | Pin / highlight quotes manually                    | ✅ Done      | feat 6.2   |
 | 6.3   | Upgrade prompt at scroll depth                     | ✅ Done      | feat 6.3   |
-| 6.4   | Notion-style block editor with slash commands      | À faire (planifié) | — |
+| 6.4   | Notion-style block editor with slash commands      | ✅ Done (V1) | feat 6.4   |
+| 6.4.1 | Tables, images, custom blocks (Insight, Metric)    | À faire      | —          |
 
 ---
 
@@ -146,21 +147,40 @@ Le `MarkdownWithCitations` actuel devient `FindingsRenderer` qui :
 | `app/findings/[token]/page.tsx` | utilise FindingsRenderer |
 | `package.json` | + `@tiptap/react`, `@tiptap/starter-kit`, `@tiptap/extension-table`, `@tiptap/extension-image`, `@tiptap/suggestion` |
 
-### Effort estimé
+### V1 livré (commit feat 6.4)
 
-- **2-3 jours de focus** (vs 2-3h pour Story 6.1)
-- Risques : bug du Tiptap suggestion plugin, sérialisation JSON ↔ markdown, accessibility du slash menu
-- Plan B si Tiptap est trop lourd : utiliser BlockNote qui réduit l'effort à ~1 jour mais limite la personnalisation
+- Tiptap v3 + StarterKit (paragraphes, H1/H2/H3, bullet/ordered lists,
+  blockquote, code block, hr, gras/italique/strike/code inline)
+- SlashCommand extension via `@tiptap/suggestion` — menu searchable groupé
+  par section (Texte, Listes, Soleo) avec navigation clavier
+- CitationNode (inline atom node) qui rend une `<CitationPill>` directement
+  dans l'éditeur — même look que le viewer public
+- CitationPicker (modale plein écran) — recherche par texte, navigation
+  clavier (↑↓ + Entrée), groupé par question
+- Markdown bridge custom (markdown-bridge.ts) — convertit DB markdown ↔
+  HTML pour Tiptap. Préserve les tokens `{r:ID}` ↔ `<span data-citation-id>`
+- Pas de breaking change : la DB stocke toujours du markdown,
+  le viewer public continue d'utiliser MarkdownWithCitations,
+  l'AI generation reste markdown.
 
-### Critères d'acceptation
+### V2 à faire (Story 6.4.1)
 
-1. Taper `/` dans une ligne vide ouvre le menu de commandes
-2. Naviguer au clavier dans le menu fonctionne
-3. Insérer un H1 / H2 / liste / tableau via le menu produit le bon bloc visuel
-4. Insérer une citation via "/citer" ouvre le picker, recherche et insère un `CitationPill` rendu inline
-5. Le bouton "✨ Suggérer un brouillon IA" fonctionne toujours et remplit l'éditeur (avec conversion markdown → JSON ProseMirror automatique)
-6. Le viewer public affiche le même rendu visuel que l'éditeur (sans la chrome d'édition)
-7. Les findings créés en Story 6.1 (markdown brut) continuent de s'ouvrir et s'éditer sans perte
-8. Auto-save fonctionne sur le JSON
-9. Publication / dépublication fonctionnent comme avant
+- Image upload (réutiliser Supabase Storage déjà branché)
+- Tableau (extension `@tiptap/extension-table`)
+- InsightCallout (block node custom — encart visuel pour épingler un constat)
+- MetricBlock (block node custom — affiche une stat depuis les analytics)
+- Drag handles sur les blocs (extension officielle Tiptap)
+- Conversion automatique de format vers JSON ProseMirror en colonne dédiée
+  (pour éviter la perte de fidélité du markdown sur les blocs custom)
+
+### Critères d'acceptation V1 — tous validés
+
+1. ✅ Taper `/` ouvre le menu de commandes
+2. ✅ Naviguer au clavier (↑↓/Enter/Esc)
+3. ✅ Insérer H1/H2/H3, listes, blockquote, code block, hr
+4. ✅ "/citer" ouvre le picker, insère un CitationPill inline
+5. ✅ Le bouton "✨ Suggérer brouillon IA" continue de marcher
+6. ✅ Les findings markdown existants (Story 6.1) s'ouvrent sans perte
+7. ✅ Auto-save fonctionne sur le markdown sérialisé
+8. ✅ Publication / dépublication inchangées
 

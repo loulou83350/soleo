@@ -3,6 +3,7 @@
 import { useState, useTransition, useEffect, useRef } from 'react';
 import { Sparkles, Loader2, Check, Copy, Globe, Lock, ExternalLink, ChevronsUpDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Editor as RichEditor } from '@/components/findings/editor/Editor';
 import type { CitationSource } from '@/components/findings/CitationPill';
 import {
   saveFindingAction,
@@ -16,12 +17,8 @@ import type { AIProvider } from '@/lib/ai/providers';
 
 interface Props {
   finding: SessionFinding;
-  /**
-   * Citation sources kept on the type for future use (Story 6.4 Notion-style
-   * editor will need them for the inline citation picker). Currently unused
-   * by the textarea editor — the rendering happens on the public viewer.
-   */
-  sources?: Array<[number, CitationSource]>;
+  /** Citation sources serialized as [responseId, source][] tuples */
+  sources: Array<[number, CitationSource]>;
   availableProviders: AIProvider[];
   activeProvider: AIProvider | null;
   context: { projectId: number; sessionId: number };
@@ -31,10 +28,12 @@ type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
 
 export function FindingsEditor({
   finding,
+  sources: sourcesEntries,
   availableProviders,
   activeProvider,
   context,
 }: Props) {
+  const sources = new Map(sourcesEntries);
   const [title, setTitle] = useState(finding.title);
   const [body, setBody] = useState(finding.bodyMarkdown);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle');
@@ -258,38 +257,35 @@ export function FindingsEditor({
         className="w-full text-2xl font-semibold border-0 border-b border-border focus:border-foreground/40 focus:outline-none bg-transparent py-2 transition-colors placeholder:text-muted-foreground/50"
       />
 
-      {/* Single-pane editor — preview happens via "Voir public" once published */}
-      <div className="border border-border rounded-lg p-6 min-h-[65vh]">
-        <textarea
-          value={body}
-          onChange={(e) => setBody(e.target.value)}
-          placeholder={`Écrivez votre rapport en markdown.
-
-Utilisez { r:ID } pour citer une réponse ; chaque citation devient une pill cliquable dans la version publique.${availableProviders.length > 0 ? '\n\nAstuce : « ✨ Suggérer un brouillon IA » en haut à droite si vous voulez un point de départ.' : ''}`}
-          className="w-full h-full min-h-[60vh] resize-none font-mono text-sm bg-transparent border-0 focus:outline-none text-foreground leading-relaxed"
+      {/* Notion-style block editor (Story 6.4) */}
+      <div className="border border-border rounded-lg p-6 min-h-[65vh] bg-background">
+        <RichEditor
+          initialMarkdown={body}
+          sources={sources}
+          onChange={(md) => setBody(md)}
+          placeholder={
+            availableProviders.length > 0
+              ? 'Tapez "/" pour ouvrir le menu de commandes (titres, listes, citations…), ou ✨ pour générer un brouillon avec l\'IA.'
+              : 'Tapez "/" pour ouvrir le menu de commandes (titres, listes, citations…).'
+          }
         />
       </div>
 
       <p className="text-xs text-muted-foreground">
-        💡 Insérez une citation manuellement avec la syntaxe{' '}
-        <code className="px-1 py-0.5 bg-muted rounded text-[11px]">
-          {'{r:ID}'}
-        </code>{' '}
-        — où ID est l&apos;identifiant d&apos;une réponse. Les IDs invalides
-        sont supprimés automatiquement à la publication. Cliquez{' '}
-        {isPublished && publicToken ? (
+        💡 Tapez <code className="px-1 py-0.5 bg-muted rounded text-[11px]">/</code>{' '}
+        n&apos;importe où pour insérer un titre, une liste, ou citer une
+        réponse via le picker. Les citations apparaissent inline comme des
+        pills cliquables.{' '}
+        {isPublished && publicToken && (
           <a
             href={`/findings/${publicToken}`}
             target="_blank"
             rel="noopener noreferrer"
             className="underline hover:text-foreground"
           >
-            « Voir public »
+            Voir le rendu public →
           </a>
-        ) : (
-          'sur « Publier »'
-        )}{' '}
-        pour visualiser le rendu final avec citations cliquables.
+        )}
       </p>
     </div>
   );
