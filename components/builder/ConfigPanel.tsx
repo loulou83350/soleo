@@ -2,19 +2,22 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  BookOpen, CheckCircle,
   AlignLeft, AlignJustify, CheckSquare, BarChart2, Star,
   Gauge, LayoutGrid, Table2, Eye, Play, Type,
   Plus, Trash2, Check, Loader2, AlertCircle, Upload, GitBranch, X,
 } from 'lucide-react';
-import type { SessionBlock, SessionPageWithBlocks, BlockType } from '@/lib/db/schema';
+import type { SessionBlock, BlockType } from '@/lib/db/schema';
 import type {
+  WelcomeConfig, ThankYouConfig,
   ContentConfig, ShortTextConfig, LongTextConfig, McqConfig, LikertConfig,
   RatingConfig, NpsConfig, CardSortConfig, MatrixConfig,
   FirstImpressionConfig, PrototypeTaskConfig,
 } from '@/lib/domain/blocks';
-import { BLOCK_LABELS } from '@/lib/domain/blocks';
+import { BLOCK_LABELS, ANCHOR_BLOCK_TYPES } from '@/lib/domain/blocks';
 import type { BlockCondition, BlockVisibilityRule, ConditionOperator } from '@/lib/domain/types';
-import { updateBlockAction, deleteBlockAction, uploadBlockImageAction } from '@/app/(dashboard)/dashboard/projects/[id]/sessions/actions';
+import { updateBlockAction, deleteBlockAction, uploadBlockImageAction, fetchFigmaFramesAction } from '@/app/(dashboard)/dashboard/projects/[id]/sessions/actions';
+import type { FigmaFrame } from '@/lib/figma/api';
 
 // ─── Shared field components ──────────────────────────────────────────────────
 
@@ -493,28 +496,242 @@ function MatrixForm({ config, onChange }: { config: MatrixConfig; onChange: (c: 
 }
 
 function PrototypeTaskForm({ config, onChange }: { config: PrototypeTaskConfig; onChange: (c: PrototypeTaskConfig) => void }) {
+  const taskType = config.taskType ?? 'explore';
+  const isGoal = taskType === 'goal';
+
+  // ── Figma screen picker state ──
+  const [frames, setFrames] = useState<FigmaFrame[]>([]);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [pickerLoading, setPickerLoading] = useState(false);
+  const [pickerError, setPickerError] = useState<string | null>(null);
+  const [frameSearch, setFrameSearch] = useState('');
+
+  // Find the selected frame name for display
+  const selectedFrame = frames.find((f) => f.id === config.goalNodeId) ?? null;
+
+  async function openPicker() {
+    if (!config.url.trim()) {
+      setPickerError("Entrez d'abord l'URL du prototype Figma.");
+      setPickerOpen(true);
+      return;
+    }
+    setPickerLoading(true);
+    setPickerError(null);
+    setPickerOpen(true);
+    setFrameSearch('');
+
+    const result = await fetchFigmaFramesAction(config.url);
+    setPickerLoading(false);
+
+    if (!result.success) {
+      setPickerError(result.error ?? 'Erreur inconnue');
+      return;
+    }
+    setFrames(result.data);
+  }
+
+  function selectFrame(frame: FigmaFrame) {
+    // Build a Figma URL with the node-id so it can be used as goalFrameUrl too
+    const urlNodeId = frame.id.replace(/:/g, '-');
+    const goalFrameUrl = config.url
+      ? (() => {
+          try {
+            const u = new URL(config.url);
+            u.searchParams.set('node-id', urlNodeId);
+            return u.toString();
+          } catch {
+            return undefined;
+          }
+        })()
+      : undefined;
+
+    onChange({
+      ...config,
+      goalNodeId: frame.id,
+      goalFrameUrl,
+    });
+    setPickerOpen(false);
+  }
+
+  function clearGoal() {
+    onChange({ ...config, goalNodeId: undefined, goalFrameUrl: undefined });
+  }
+
+  const filteredFrames = frames.filter((f) =>
+    f.name.toLowerCase().includes(frameSearch.toLowerCase())
+  );
+
   return (
-    <div className="space-y-3">
+    <div className="space-y-4">
+      {/* URL */}
       <div>
         <Label>URL du prototype</Label>
         <TextInput
           value={config.url}
           onChange={(v) => onChange({ ...config, url: v })}
-          placeholder="https://www.figma.com/proto/… ou URL live"
+          placeholder="https://www.figma.com/proto/…"
         />
         <p className="mt-1 text-[11px] text-muted-foreground">
-          Figma Prototype, Marvel, InVision, ou n'importe quelle URL accessible publiquement.
+          Collez le lien de partage du prototype Figma.
         </p>
       </div>
+
+      {/* Instructions */}
       <div>
         <Label>Instructions pour le participant</Label>
         <TextInput
           value={config.instructions}
           onChange={(v) => onChange({ ...config, instructions: v })}
-          placeholder="Ex: Essayez de trouver la page de paiement…"
+          placeholder="Ex : Trouvez la page de paiement et ajoutez un article au panier…"
           multiline
         />
       </div>
+
+      {/* Task type toggle */}
+      <div>
+        <Label>Type de tâche</Label>
+        <div className="flex gap-2 mt-1">
+          {(['explore', 'goal'] as const).map((type) => (
+            <button
+              key={type}
+              type="button"
+              onClick={() => onChange({ ...config, taskType: type })}
+              className={`flex-1 py-2 px-3 text-xs font-medium rounded-lg border transition-colors ${
+                taskType === type
+                  ? 'border-foreground bg-foreground text-background'
+                  : 'border-border bg-background text-foreground hover:bg-muted'
+              }`}
+            >
+              {type === 'explore' ? '🔍 Exploration libre' : '🎯 Basée sur un objectif'}
+            </button>
+          ))}
+        </div>
+        <p className="mt-1 text-[11px] text-muted-foreground">
+          {isGoal
+            ? 'La tâche se termine automatiquement quand le participant atteint l\'écran cible.'
+            : 'Le participant explore librement. La tâche se termine quand il clique sur "Suivant".'}
+        </p>
+      </div>
+
+      {/* Goal screen picker — only when goal-based */}
+      {isGoal && (
+        <div>
+          <Label>Écran de fin</Label>
+
+          {/* Selected frame display */}
+          {config.goalNodeId && selectedFrame ? (
+            <div className="flex items-center gap-2 mt-1 px-3 py-2 bg-muted/50 border border-border rounded-lg">
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-medium text-foreground truncate">{selectedFrame.name}</p>
+                <p className="text-[10px] text-muted-foreground font-mono">{selectedFrame.id}</p>
+              </div>
+              <button
+                type="button"
+                onClick={clearGoal}
+                className="shrink-0 text-muted-foreground hover:text-foreground"
+                aria-label="Supprimer l'écran cible"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          ) : config.goalNodeId ? (
+            // Frame ID set but not in loaded list (e.g., frames not loaded yet)
+            <div className="flex items-center gap-2 mt-1 px-3 py-2 bg-muted/50 border border-border rounded-lg">
+              <p className="text-xs text-foreground font-mono flex-1 truncate">{config.goalNodeId}</p>
+              <button type="button" onClick={clearGoal} className="shrink-0 text-muted-foreground hover:text-foreground">
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          ) : null}
+
+          {/* Picker button */}
+          <button
+            type="button"
+            onClick={openPicker}
+            className="mt-2 w-full flex items-center justify-center gap-2 py-2 px-3 text-xs font-medium border border-dashed border-border rounded-lg text-muted-foreground hover:text-foreground hover:border-foreground/40 transition-colors"
+          >
+            <Play className="h-3.5 w-3.5" />
+            {config.goalNodeId ? 'Changer l\'écran cible' : 'Choisir l\'écran cible parmi les frames Figma'}
+          </button>
+
+          {/* Picker dropdown */}
+          {pickerOpen && (
+            <div className="mt-2 border border-border rounded-lg bg-background shadow-lg overflow-hidden">
+              <div className="flex items-center justify-between px-3 py-2 border-b border-border">
+                <p className="text-xs font-medium text-foreground">Sélectionner un écran</p>
+                <button
+                  type="button"
+                  onClick={() => setPickerOpen(false)}
+                  className="text-muted-foreground hover:text-foreground"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+
+              {pickerLoading && (
+                <div className="flex items-center justify-center gap-2 py-6">
+                  <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                  <p className="text-xs text-muted-foreground">Chargement des frames Figma…</p>
+                </div>
+              )}
+
+              {!pickerLoading && pickerError && (
+                <div className="p-3 space-y-2">
+                  <p className="text-xs text-destructive">{pickerError}</p>
+                  {pickerError.includes('FIGMA_ACCESS_TOKEN') && (
+                    <div className="text-[11px] text-muted-foreground bg-muted/50 rounded p-2 space-y-1">
+                      <p className="font-medium">Pour activer le sélecteur d'écrans :</p>
+                      <p>1. Créez un token sur figma.com → Settings → Personal access tokens</p>
+                      <p>2. Ajoutez dans votre <code className="font-mono">.env.local</code> :</p>
+                      <p className="font-mono bg-background px-1 rounded">FIGMA_ACCESS_TOKEN=fig_xxx…</p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {!pickerLoading && !pickerError && frames.length === 0 && (
+                <p className="px-3 py-4 text-xs text-muted-foreground text-center">Aucune frame trouvée dans ce prototype.</p>
+              )}
+
+              {!pickerLoading && !pickerError && frames.length > 0 && (
+                <>
+                  <div className="px-3 py-2 border-b border-border">
+                    <input
+                      type="text"
+                      value={frameSearch}
+                      onChange={(e) => setFrameSearch(e.target.value)}
+                      placeholder="Rechercher un écran…"
+                      className="w-full text-xs bg-muted/50 rounded px-2 py-1.5 border border-border focus:outline-none focus:ring-1 focus:ring-ring"
+                      autoFocus
+                    />
+                  </div>
+                  <ul className="max-h-48 overflow-y-auto">
+                    {filteredFrames.map((frame) => (
+                      <li key={frame.id}>
+                        <button
+                          type="button"
+                          onClick={() => selectFrame(frame)}
+                          className={`w-full text-left px-3 py-2 text-xs hover:bg-muted transition-colors flex items-center justify-between gap-2 ${
+                            config.goalNodeId === frame.id ? 'bg-muted font-medium' : ''
+                          }`}
+                        >
+                          <span className="truncate">{frame.name}</span>
+                          {config.goalNodeId === frame.id && (
+                            <Check className="h-3.5 w-3.5 text-foreground shrink-0" />
+                          )}
+                        </button>
+                      </li>
+                    ))}
+                    {filteredFrames.length === 0 && (
+                      <li className="px-3 py-3 text-xs text-muted-foreground text-center">Aucun résultat</li>
+                    )}
+                  </ul>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -693,20 +910,60 @@ function ConditionEditor({
   );
 }
 
+// ─── Welcome form ─────────────────────────────────────────────────────────────
+
+function WelcomeForm({ config, onChange }: { config: WelcomeConfig; onChange: (c: WelcomeConfig) => void }) {
+  return (
+    <div className="space-y-4">
+      <div>
+        <Label>Titre</Label>
+        <TextInput value={config.title} onChange={(v) => onChange({ ...config, title: v })} placeholder="Ex : Bienvenue dans notre étude" />
+      </div>
+      <div>
+        <Label>Description</Label>
+        <TextInput value={config.description} onChange={(v) => onChange({ ...config, description: v })} placeholder="Contexte et instructions pour les participants…" multiline />
+      </div>
+      <div>
+        <Label>Texte du bouton</Label>
+        <TextInput value={config.buttonText} onChange={(v) => onChange({ ...config, buttonText: v })} placeholder="Commencer" />
+      </div>
+    </div>
+  );
+}
+
+// ─── Thank you form ───────────────────────────────────────────────────────────
+
+function ThankYouForm({ config, onChange }: { config: ThankYouConfig; onChange: (c: ThankYouConfig) => void }) {
+  return (
+    <div className="space-y-4">
+      <div>
+        <Label>Titre</Label>
+        <TextInput value={config.title} onChange={(v) => onChange({ ...config, title: v })} placeholder="Ex : Merci !" />
+      </div>
+      <div>
+        <Label>Message de fin</Label>
+        <TextInput value={config.description} onChange={(v) => onChange({ ...config, description: v })} placeholder="Message affiché après la session…" multiline />
+      </div>
+    </div>
+  );
+}
+
 // ─── Block type icon map ──────────────────────────────────────────────────────
 
 const BLOCK_ICONS: Record<BlockType, React.ComponentType<{ className?: string }>> = {
-  content: Type,
-  short_text: AlignLeft,
-  long_text: AlignJustify,
-  mcq: CheckSquare,
-  likert: BarChart2,
-  rating: Star,
-  nps: Gauge,
-  card_sort: LayoutGrid,
-  matrix: Table2,
+  welcome:          BookOpen,
+  thank_you:        CheckCircle,
+  content:          Type,
+  short_text:       AlignLeft,
+  long_text:        AlignJustify,
+  mcq:              CheckSquare,
+  likert:           BarChart2,
+  rating:           Star,
+  nps:              Gauge,
+  card_sort:        LayoutGrid,
+  matrix:           Table2,
   first_impression: Eye,
-  prototype_task: Play,
+  prototype_task:   Play,
 };
 
 // ─── Save status indicator ────────────────────────────────────────────────────
@@ -799,6 +1056,7 @@ function BlockConfigForm({ block, sessionId, precedingBlocks, onBlockDeleted, on
 
   const blockType = block.blockType as BlockType;
   const Icon = BLOCK_ICONS[blockType] ?? AlignLeft;
+  const isAnchor = ANCHOR_BLOCK_TYPES.includes(blockType);
 
   return (
     <div className="flex flex-col h-full">
@@ -812,20 +1070,22 @@ function BlockConfigForm({ block, sessionId, precedingBlocks, onBlockDeleted, on
         </div>
         <div className="flex items-center gap-2 shrink-0">
           <SaveIndicator status={saveStatus} />
-          <button
-            onClick={handleDelete}
-            className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
-            aria-label="Supprimer le bloc"
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-          </button>
+          {!isAnchor && (
+            <button
+              onClick={handleDelete}
+              className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+              aria-label="Supprimer le bloc"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          )}
         </div>
       </div>
 
       {/* Fields */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {/* Required toggle — hidden for content blocks (no answer expected) */}
-        {blockType !== 'content' && (
+        {/* Required toggle — hidden for anchor + content blocks */}
+        {!isAnchor && blockType !== 'content' && (
           <div className="pb-3 border-b border-border">
             <Toggle
               label="Réponse obligatoire"
@@ -835,8 +1095,8 @@ function BlockConfigForm({ block, sessionId, precedingBlocks, onBlockDeleted, on
           </div>
         )}
 
-        {/* Conditions — hidden for content blocks */}
-        {blockType !== 'content' && (
+        {/* Conditions — hidden for anchor + content blocks */}
+        {!isAnchor && blockType !== 'content' && (
           <div className="pb-3 border-b border-border space-y-2">
             <div className="flex items-center gap-1.5">
               <GitBranch className="h-3.5 w-3.5 text-muted-foreground" />
@@ -859,6 +1119,18 @@ function BlockConfigForm({ block, sessionId, precedingBlocks, onBlockDeleted, on
         )}
 
         {/* Type-specific fields */}
+        {blockType === 'welcome' && (
+          <WelcomeForm
+            config={config as WelcomeConfig}
+            onChange={(c) => handleConfigChange(c as Record<string, unknown>)}
+          />
+        )}
+        {blockType === 'thank_you' && (
+          <ThankYouForm
+            config={config as ThankYouConfig}
+            onChange={(c) => handleConfigChange(c as Record<string, unknown>)}
+          />
+        )}
         {blockType === 'content' && (
           <ContentForm
             config={config as ContentConfig}
@@ -935,7 +1207,7 @@ function BlockConfigForm({ block, sessionId, precedingBlocks, onBlockDeleted, on
 // ─── ConfigPanel ──────────────────────────────────────────────────────────────
 
 interface ConfigPanelProps {
-  page: SessionPageWithBlocks | null;
+  blocks: SessionBlock[];
   selectedBlockId: number | null;
   sessionId: number;
   precedingBlocks: SessionBlock[];
@@ -944,7 +1216,7 @@ interface ConfigPanelProps {
 }
 
 export function ConfigPanel({
-  page,
+  blocks,
   selectedBlockId,
   sessionId,
   precedingBlocks,
@@ -953,7 +1225,7 @@ export function ConfigPanel({
 }: ConfigPanelProps) {
   const selectedBlock =
     selectedBlockId != null
-      ? page?.blocks.find((b) => b.id === selectedBlockId) ?? null
+      ? blocks.find((b) => b.id === selectedBlockId) ?? null
       : null;
 
   return (

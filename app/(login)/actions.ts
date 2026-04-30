@@ -551,3 +551,29 @@ export const cancelInvitation = validatedActionWithUser(
     return { success: 'Invitation cancelled' };
   }
 );
+
+// ─── Figma Integration ────────────────────────────────────────────────────────
+
+export async function saveFigmaTokenAction(
+  _: unknown,
+  formData: FormData
+): Promise<{ error?: string; success?: string }> {
+  const user = await getUser();
+  if (!user) return { error: 'Non authentifié' };
+
+  const teamMember = await db.query.teamMembers.findFirst({
+    where: eq(teamMembers.userId, user.id),
+  });
+  if (!teamMember) return { error: 'Aucune équipe trouvée' };
+
+  const token = formData.get('figmaToken') as string | null;
+  // Allow clearing the token by submitting empty string
+  const cleaned = token ? token.trim() : null;
+
+  await db
+    .update(teams)
+    .set({ figmaAccessToken: cleaned })
+    .where(eq(teams.id, teamMember.teamId));
+
+  return { success: cleaned ? 'Token Figma enregistré.' : 'Token Figma supprimé.' };
+}
