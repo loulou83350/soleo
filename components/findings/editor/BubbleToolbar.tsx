@@ -29,12 +29,16 @@ export function BubbleToolbar({ editor }: Props) {
       editor={editor}
       options={{
         // Above the selection (Notion-style), with auto-flip if not enough
-        // room. shift keeps the menu inside the viewport horizontally so it
-        // never disappears under the sidebar.
+        // room. The bubble menu portals into document.body and Floating UI
+        // doesn't see the position:fixed sidebar as an obstacle — we
+        // compensate with a left-side padding wider than the sidebar
+        // (~256px) so the menu never sits behind it.
         placement: 'top',
         offset: 16,
         flip: true,
-        shift: { padding: 16 },
+        shift: {
+          padding: { top: 16, right: 16, bottom: 16, left: 280 },
+        },
       }}
       shouldShow={({ editor: ed, from, to }) => {
         // Hide when nothing is selected
