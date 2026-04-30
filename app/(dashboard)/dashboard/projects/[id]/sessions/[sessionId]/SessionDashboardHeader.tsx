@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { Check, Copy, Pencil } from 'lucide-react';
+import { Check, Copy, Download, Pencil } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 interface SessionDashboardHeaderProps {
@@ -57,14 +57,26 @@ export function SessionDashboardHeader({
           </span>
         </div>
 
-        <Button asChild variant="outline" size="sm">
-          <Link
-            href={`/dashboard/projects/${projectId}/sessions/${sessionId}/builder`}
-          >
-            <Pencil className="h-3.5 w-3.5 mr-1.5" />
-            Builder
-          </Link>
-        </Button>
+        <div className="flex items-center gap-2 shrink-0">
+          <Button asChild variant="outline" size="sm">
+            {/* Native browser download — no JS state, just a link */}
+            <a
+              href={`/dashboard/projects/${projectId}/sessions/${sessionId}/export`}
+              download
+            >
+              <Download className="h-3.5 w-3.5 mr-1.5" />
+              Exporter CSV
+            </a>
+          </Button>
+          <Button asChild variant="outline" size="sm">
+            <Link
+              href={`/dashboard/projects/${projectId}/sessions/${sessionId}/builder`}
+            >
+              <Pencil className="h-3.5 w-3.5 mr-1.5" />
+              Builder
+            </Link>
+          </Button>
+        </div>
       </div>
 
       {/* Public link */}

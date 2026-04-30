@@ -37,3 +37,66 @@ export function formatRelativeDate(date: Date | string): string {
   if (abs < 31536000) return rtf.format(Math.round(diffSec / 2592000), 'month');
   return rtf.format(Math.round(diffSec / 31536000), 'year');
 }
+
+// ─── CSV helpers (Story 5.4) ─────────────────────────────────────────────────
+
+/**
+ * Quote and escape a single CSV field per RFC 4180:
+ *  - Wrap in double quotes if it contains the separator, quote, CR or LF
+ *  - Double-up internal quotes
+ *  - null/undefined → empty string
+ */
+export function escapeCsvField(
+  value: unknown,
+  separator: string = ';'
+): string {
+  if (value == null) return '';
+  let s = typeof value === 'string' ? value : String(value);
+  // Normalize line breaks to \n inside CSV; some readers choke on \r\n
+  s = s.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  if (s.includes(separator) || s.includes('"') || s.includes('\n')) {
+    return `"${s.replace(/"/g, '""')}"`;
+  }
+  return s;
+}
+
+/**
+ * Build a CSV string from header + rows. Defaults to semicolon separator
+ * (Excel-FR friendly) and prepends a UTF-8 BOM so accents render correctly
+ * in Excel without manual import wizardry.
+ */
+export function buildCsv({
+  header,
+  rows,
+  separator = ';',
+  withBom = true,
+}: {
+  header: string[];
+  rows: unknown[][];
+  separator?: string;
+  withBom?: boolean;
+}): string {
+  const lines: string[] = [];
+  lines.push(header.map((h) => escapeCsvField(h, separator)).join(separator));
+  for (const row of rows) {
+    lines.push(row.map((c) => escapeCsvField(c, separator)).join(separator));
+  }
+  return (withBom ? '﻿' : '') + lines.join('\r\n');
+}
+
+/**
+ * Slugify a label for safe use in CSV column names.
+ *  - keep alphanumerics + underscore
+ *  - collapse runs of non-alphanum to single underscore
+ *  - lower-case
+ *  - cap length
+ */
+export function slugifyForCsv(label: string, maxLen = 30): string {
+  const slug = label
+    .toLowerCase()
+    .normalize('NFD').replace(/[̀-ͯ]/g, '') // strip diacritics
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, maxLen);
+  return slug || 'sans_titre';
+}

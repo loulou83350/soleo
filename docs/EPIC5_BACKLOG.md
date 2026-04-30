@@ -7,7 +7,7 @@ Statut des stories de l'Epic 5 (Results & Analysis).
 | 5.1   | Response dashboard (overview + métriques)      | ✅ Done      | feat 5.1      |
 | 5.2   | Détail d'une réponse individuelle              | ✅ Done      | feat 5.2      |
 | 5.3   | Insight tags (annoter les réponses, manuel + IA) | ✅ Done    | feat 5.3      |
-| 5.4   | Export CSV des réponses                        | À faire      | —             |
+| 5.4   | Export CSV des réponses                        | ✅ Done      | feat 5.4      |
 | 5.5   | Email notifications via Cron + Resend          | Partiel*     | feat 4.5      |
 | 5.6   | Récap agrégé par question (cross-participants) | ✅ Done      | feat 5.6      |
 
