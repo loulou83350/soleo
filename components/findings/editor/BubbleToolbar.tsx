@@ -29,7 +29,9 @@ export function BubbleToolbar({ editor }: Props) {
       editor={editor}
       options={{
         placement: 'top',
-        offset: 8,
+        // Generous gap so the toolbar doesn't visually clip the line above
+        // the selection. Auto-flips below when there's not enough room above.
+        offset: 16,
       }}
       shouldShow={({ editor: ed, from, to }) => {
         // Hide when nothing is selected
@@ -39,7 +41,7 @@ export function BubbleToolbar({ editor }: Props) {
         return true;
       }}
     >
-      <div className="flex items-center gap-0.5 rounded-lg border border-border bg-background shadow-md p-1">
+      <div className="z-40 flex items-center gap-0.5 rounded-lg border border-border bg-background shadow-md p-1">
         {/* Inline formatting */}
         <ToolButton
           editor={editor}
