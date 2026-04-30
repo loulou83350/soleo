@@ -26,7 +26,8 @@ import type { ActionResult } from '@/lib/domain/types';
 import type { InsightTag } from '@/lib/db/schema';
 
 // Curated palette — 10 tokens. Kept in sync with TagChip.
-export const TAG_COLORS = [
+// Cannot be `export`ed: 'use server' files only allow async function exports.
+const TAG_COLORS = [
   'gray',
   'red',
   'orange',
