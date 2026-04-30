@@ -7,18 +7,25 @@ import { getSessionWithBlocks } from '@/lib/repositories/sessions';
 import {
   getSessionStats,
   listParticipantsForSession,
+  getAllResponsesForSession,
 } from '@/lib/repositories/participant-sessions';
 import { formatDuration, formatPercent } from '@/lib/utils';
+import { ANCHOR_BLOCK_TYPES } from '@/lib/domain/blocks';
+import { summarizeForBlock } from '@/lib/analytics/summaries';
 import { SessionDashboardHeader } from './SessionDashboardHeader';
 import { MetricCard } from './MetricCard';
 import { ParticipantTable } from './ParticipantTable';
+import { BlockSummaryRenderer } from './BlockSummaryRenderer';
+import type { SessionBlock } from '@/lib/db/schema';
 
 interface Props {
   params: Promise<{ id: string; sessionId: string }>;
+  searchParams: Promise<{ view?: string }>;
 }
 
-export default async function SessionDashboardPage({ params }: Props) {
+export default async function SessionDashboardPage({ params, searchParams }: Props) {
   const { id, sessionId: sessionIdParam } = await params;
+  const { view } = await searchParams;
   const projectId = parseInt(id, 10);
   const sessionId = parseInt(sessionIdParam, 10);
 
@@ -30,11 +37,15 @@ export default async function SessionDashboardPage({ params }: Props) {
   const userWithTeam = await getUserWithTeam(user.id);
   if (!userWithTeam?.teamId) notFound();
 
-  const [project, session, stats, participants] = await Promise.all([
+  const isSummaryView = view === 'summary';
+
+  // Always fetch the cheap stuff. Heavy summary fetch only when needed.
+  const [project, session, stats, participants, allResponses] = await Promise.all([
     getProjectById(projectId, userWithTeam.teamId),
     getSessionWithBlocks(sessionId, userWithTeam.teamId),
     getSessionStats(sessionId),
     listParticipantsForSession(sessionId),
+    isSummaryView ? getAllResponsesForSession(sessionId) : Promise.resolve([]),
   ]);
 
   if (!project || !session) notFound();
@@ -60,7 +71,7 @@ export default async function SessionDashboardPage({ params }: Props) {
           projectId={projectId}
         />
 
-        {/* Metrics */}
+        {/* Metrics — always visible regardless of tab */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           <MetricCard
             label="Démarrés"
@@ -89,32 +100,179 @@ export default async function SessionDashboardPage({ params }: Props) {
           />
         </div>
 
-        {/* Participants list */}
-        <section className="space-y-3">
-          <p className="text-sm font-medium text-foreground">
-            Participants{' '}
-            <span className="text-muted-foreground font-normal">
-              ({participants.length})
-            </span>
-          </p>
+        {/* Tabs */}
+        <Tabs projectId={projectId} sessionId={session.id} active={isSummaryView ? 'summary' : 'participants'} />
 
-          {participants.length === 0 ? (
-            <div className="border border-dashed border-border rounded-lg py-12 text-center">
-              <p className="text-sm text-muted-foreground">
-                {session.status === 'published'
-                  ? 'En attente du premier participant. Partagez le lien public pour collecter des réponses.'
-                  : 'Cette session n’est pas encore publiée.'}
-              </p>
-            </div>
-          ) : (
-            <ParticipantTable
-              rows={participants}
-              projectId={projectId}
-              sessionId={session.id}
-            />
-          )}
-        </section>
+        {/* Tab content */}
+        {isSummaryView ? (
+          <SummaryView blocks={session.blocks} responses={allResponses} />
+        ) : (
+          <ParticipantsView
+            participants={participants}
+            sessionStatus={session.status}
+            projectId={projectId}
+            sessionId={session.id}
+          />
+        )}
       </div>
     </div>
   );
+}
+
+// ─── Tabs ────────────────────────────────────────────────────────────────────
+
+function Tabs({
+  projectId,
+  sessionId,
+  active,
+}: {
+  projectId: number;
+  sessionId: number;
+  active: 'participants' | 'summary';
+}) {
+  const tabBase =
+    'px-3 py-2 text-sm font-medium border-b-2 transition-colors -mb-px';
+  const activeCls = 'border-foreground text-foreground';
+  const inactiveCls = 'border-transparent text-muted-foreground hover:text-foreground';
+
+  return (
+    <nav className="flex items-center gap-2 border-b border-border">
+      <Link
+        href={`/dashboard/projects/${projectId}/sessions/${sessionId}`}
+        className={`${tabBase} ${active === 'participants' ? activeCls : inactiveCls}`}
+      >
+        Participants
+      </Link>
+      <Link
+        href={`/dashboard/projects/${projectId}/sessions/${sessionId}?view=summary`}
+        className={`${tabBase} ${active === 'summary' ? activeCls : inactiveCls}`}
+      >
+        Récap par question
+      </Link>
+    </nav>
+  );
+}
+
+// ─── Tab: Participants ──────────────────────────────────────────────────────
+
+function ParticipantsView({
+  participants,
+  sessionStatus,
+  projectId,
+  sessionId,
+}: {
+  participants: Awaited<ReturnType<typeof listParticipantsForSession>>;
+  sessionStatus: string;
+  projectId: number;
+  sessionId: number;
+}) {
+  return (
+    <section className="space-y-3">
+      <p className="text-sm font-medium text-foreground">
+        Participants{' '}
+        <span className="text-muted-foreground font-normal">
+          ({participants.length})
+        </span>
+      </p>
+
+      {participants.length === 0 ? (
+        <div className="border border-dashed border-border rounded-lg py-12 text-center">
+          <p className="text-sm text-muted-foreground">
+            {sessionStatus === 'published'
+              ? 'En attente du premier participant. Partagez le lien public pour collecter des réponses.'
+              : 'Cette session n’est pas encore publiée.'}
+          </p>
+        </div>
+      ) : (
+        <ParticipantTable
+          rows={participants}
+          projectId={projectId}
+          sessionId={sessionId}
+        />
+      )}
+    </section>
+  );
+}
+
+// ─── Tab: Récap par question ─────────────────────────────────────────────────
+
+function SummaryView({
+  blocks,
+  responses,
+}: {
+  blocks: SessionBlock[];
+  responses: Array<{ blockId: number; value: unknown }>;
+}) {
+  // Group raw values by blockId
+  const byBlock = new Map<number, unknown[]>();
+  for (const r of responses) {
+    if (!byBlock.has(r.blockId)) byBlock.set(r.blockId, []);
+    byBlock.get(r.blockId)!.push(r.value);
+  }
+
+  // Order blocks; skip welcome / thank_you anchors
+  const orderedBlocks = [...blocks]
+    .sort((a, b) => a.position - b.position)
+    .filter((b) => !ANCHOR_BLOCK_TYPES.includes(b.blockType as 'welcome' | 'thank_you'));
+
+  if (orderedBlocks.length === 0) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        Cette session ne contient aucun bloc de question.
+      </p>
+    );
+  }
+
+  return (
+    <section className="space-y-6">
+      {orderedBlocks.map((block, idx) => {
+        const config = (block.config ?? {}) as Record<string, unknown>;
+        const values = byBlock.get(block.id) ?? [];
+        const summary = summarizeForBlock(block.blockType, config, values);
+        const question =
+          typeof config.question === 'string' && config.question
+            ? (config.question as string)
+            : typeof config.title === 'string' && config.title
+              ? (config.title as string)
+              : blockTypeLabel(block.blockType);
+
+        return (
+          <article
+            key={block.id}
+            className="border border-border rounded-lg p-5 bg-background space-y-4"
+          >
+            <header className="flex items-baseline justify-between gap-3">
+              <h2 className="text-sm font-medium text-foreground">
+                <span className="text-muted-foreground tabular-nums mr-2">
+                  {idx + 1}.
+                </span>
+                {question}
+              </h2>
+              <span className="text-xs text-muted-foreground shrink-0">
+                {blockTypeLabel(block.blockType)}
+              </span>
+            </header>
+            <BlockSummaryRenderer summary={summary} />
+          </article>
+        );
+      })}
+    </section>
+  );
+}
+
+function blockTypeLabel(type: string): string {
+  const labels: Record<string, string> = {
+    short_text: 'Texte court',
+    long_text: 'Texte long',
+    mcq: 'Choix multiple',
+    likert: 'Échelle Likert',
+    rating: 'Note',
+    nps: 'NPS',
+    card_sort: 'Tri de cartes',
+    matrix: 'Matrice',
+    first_impression: 'Premier regard',
+    content: 'Contenu',
+    prototype_task: 'Tâche prototype',
+  };
+  return labels[type] ?? type;
 }

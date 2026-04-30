@@ -189,3 +189,26 @@ export async function listParticipantsForSession(
         : null,
   }));
 }
+
+/**
+ * Returns every block_response row attached to any participant of a session,
+ * regardless of completion status. Used by the cross-participant summary
+ * view (Story 5.6) — the caller groups by blockId in TS.
+ */
+export async function getAllResponsesForSession(
+  sessionId: number
+): Promise<Array<{ blockId: number; value: unknown }>> {
+  const rows = await db
+    .select({
+      blockId: blockResponses.blockId,
+      value: blockResponses.value,
+    })
+    .from(blockResponses)
+    .innerJoin(
+      participantSessions,
+      eq(blockResponses.participantSessionId, participantSessions.id)
+    )
+    .where(eq(participantSessions.sessionId, sessionId));
+
+  return rows;
+}

@@ -9,7 +9,7 @@ Statut des stories de l'Epic 5 (Results & Analysis).
 | 5.3   | Insight tags (annoter les réponses)            | À faire      | —             |
 | 5.4   | Export CSV des réponses                        | À faire      | —             |
 | 5.5   | Email notifications via Cron + Resend          | Partiel*     | feat 4.5      |
-| **5.6** | **Récap agrégé par question (cross-participants)** | **À faire (NEW)** | —    |
+| 5.6   | Récap agrégé par question (cross-participants) | ✅ Done      | feat 5.6      |
 
 > *5.5 partiel : la notification immédiate est faite (Story 4.5 — sendSessionCompletionEmail). Le Cron pour des digests périodiques reste à faire.*
 
