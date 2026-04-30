@@ -136,7 +136,7 @@ export function BuilderClient({ session, projectId }: BuilderClientProps) {
 
       {/* Gate settings panel — slides over right panel */}
       {gatePanelOpen && (
-        <div className="fixed inset-y-0 right-0 z-50 w-80 bg-surface border-l border-border shadow-xl flex flex-col">
+        <div className="fixed inset-y-0 right-0 z-50 w-80 bg-white border-l border-border shadow-xl flex flex-col">
           <GatePanel
             sessionId={session.id}
             initial={{
