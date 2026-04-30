@@ -28,10 +28,13 @@ export function BubbleToolbar({ editor }: Props) {
     <BubbleMenu
       editor={editor}
       options={{
-        // Show below the selection so the toolbar never overlaps the
-        // title input or other UI sitting above the editor.
-        placement: 'bottom',
-        offset: 12,
+        // Above the selection (Notion-style), with auto-flip if not enough
+        // room. shift keeps the menu inside the viewport horizontally so it
+        // never disappears under the sidebar.
+        placement: 'top',
+        offset: 16,
+        flip: true,
+        shift: { padding: 16 },
       }}
       shouldShow={({ editor: ed, from, to }) => {
         // Hide when nothing is selected
