@@ -9,6 +9,7 @@ import {
   getBlockResponses,
 } from '@/lib/repositories/participant-sessions';
 import { listTeamTags, listTagsForResponses } from '@/lib/repositories/tags';
+import { listPinnedResponseIdsForSession } from '@/lib/repositories/findings';
 import {
   getActiveProvider,
   getAvailableProviders,
@@ -17,6 +18,7 @@ import { formatDuration, formatRelativeDate } from '@/lib/utils';
 import { ANCHOR_BLOCK_TYPES } from '@/lib/domain/blocks';
 import { ResponseRenderer } from './ResponseRenderer';
 import { TagEditor } from '@/components/insights/TagEditor';
+import { PinHighlightButton } from '@/components/findings/PinHighlightButton';
 import type { SessionBlock, InsightTag, TagSource } from '@/lib/db/schema';
 
 interface Props {
@@ -51,10 +53,11 @@ export default async function ParticipantDetailPage({ params }: Props) {
   // blockId → response.id (needed to wire the TagEditor)
   const responseIdByBlockId = new Map(responses.map((r) => [r.blockId, r.id]));
 
-  // Fetch tag attachments + team library + AI providers in parallel
-  const [tagsByResponse, teamTags] = await Promise.all([
+  // Fetch tag attachments + team library + pinned highlights + AI providers in parallel
+  const [tagsByResponse, teamTags, pinnedResponseIds] = await Promise.all([
     listTagsForResponses(responses.map((r) => r.id)),
     listTeamTags(userWithTeam.teamId),
+    listPinnedResponseIdsForSession(sessionId),
   ]);
   const availableProviders = getAvailableProviders();
   const activeProvider = getActiveProvider();
@@ -139,6 +142,7 @@ export default async function ParticipantDetailPage({ params }: Props) {
                   index={idx + 1}
                   value={responseMap.get(block.id) ?? null}
                   responseId={responseId}
+                  isPinned={responseId != null && pinnedResponseIds.has(responseId)}
                   attachedTags={attached}
                   teamTags={teamTags}
                   availableProviders={availableProviders}
@@ -165,6 +169,7 @@ function BlockAnswer({
   index,
   value,
   responseId,
+  isPinned,
   attachedTags,
   teamTags,
   availableProviders,
@@ -175,6 +180,7 @@ function BlockAnswer({
   index: number;
   value: unknown;
   responseId: number | undefined;
+  isPinned: boolean;
   attachedTags: Array<{ tag: InsightTag; source: TagSource }>;
   teamTags: InsightTag[];
   availableProviders: ReturnType<typeof getAvailableProviders>;
@@ -203,9 +209,9 @@ function BlockAnswer({
 
       <ResponseRenderer block={block} value={value} />
 
-      {/* Tag editor — only when there's an actual response row to attach to */}
+      {/* Tag editor + pin button — only when there's an actual response row */}
       {responseId != null && (
-        <div className="pt-3 border-t border-border/60">
+        <div className="pt-3 border-t border-border/60 space-y-3">
           <TagEditor
             responseId={responseId}
             initialAttached={attachedTags}
@@ -214,6 +220,7 @@ function BlockAnswer({
             activeProvider={activeProvider}
             context={context}
           />
+          <PinHighlightButton responseId={responseId} initialPinned={isPinned} />
         </div>
       )}
     </article>

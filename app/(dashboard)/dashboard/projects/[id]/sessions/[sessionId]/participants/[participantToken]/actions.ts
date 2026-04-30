@@ -10,6 +10,10 @@ import {
   findOrCreateTagByLabel,
   listTeamTags,
 } from '@/lib/repositories/tags';
+import {
+  pinHighlight,
+  unpinHighlight,
+} from '@/lib/repositories/findings';
 import { db } from '@/lib/db/drizzle';
 import {
   blockResponses,
@@ -224,6 +228,40 @@ export async function revalidateParticipantPath(
     `/dashboard/projects/${projectId}/sessions/${sessionId}/participants/${participantToken}`
   );
   revalidatePath(`/dashboard/projects/${projectId}/sessions/${sessionId}`);
+}
+
+// ─── Highlights (Story 6.2) ──────────────────────────────────────────────────
+
+export async function pinHighlightAction(
+  responseId: number
+): Promise<ActionResult<void>> {
+  const user = await getUser();
+  if (!user) return { success: false, error: 'Non authentifié' };
+  const userWithTeam = await getUserWithTeam(user.id);
+  if (!userWithTeam?.teamId) return { success: false, error: 'Aucune équipe' };
+
+  try {
+    await pinHighlight({ responseId, teamId: userWithTeam.teamId });
+    return { success: true, data: undefined };
+  } catch {
+    return { success: false, error: 'Impossible d\'épingler la réponse' };
+  }
+}
+
+export async function unpinHighlightAction(
+  responseId: number
+): Promise<ActionResult<void>> {
+  const user = await getUser();
+  if (!user) return { success: false, error: 'Non authentifié' };
+  const userWithTeam = await getUserWithTeam(user.id);
+  if (!userWithTeam?.teamId) return { success: false, error: 'Aucune équipe' };
+
+  try {
+    await unpinHighlight({ responseId, teamId: userWithTeam.teamId });
+    return { success: true, data: undefined };
+  } catch {
+    return { success: false, error: 'Impossible de retirer l\'épingle' };
+  }
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────

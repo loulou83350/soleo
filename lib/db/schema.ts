@@ -410,3 +410,34 @@ export const sessionFindingsRelations = relations(sessionFindings, ({ one }) => 
 
 export type SessionFinding = typeof sessionFindings.$inferSelect;
 export type NewSessionFinding = typeof sessionFindings.$inferInsert;
+
+// ─── Finding Highlights (Story 6.2) ──────────────────────────────────────────
+
+export const findingHighlights = pgTable('finding_highlights', {
+  id: serial('id').primaryKey(),
+  findingId: integer('finding_id')
+    .notNull()
+    .references(() => sessionFindings.id, { onDelete: 'cascade' }),
+  responseId: integer('response_id')
+    .notNull()
+    .references(() => blockResponses.id, { onDelete: 'cascade' }),
+  /** Researcher's optional comment on this highlight (e.g. why it matters) */
+  customNote: text('custom_note'),
+  /** Display order, lower = top */
+  position: integer('position').notNull().default(0),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+});
+
+export const findingHighlightsRelations = relations(findingHighlights, ({ one }) => ({
+  finding: one(sessionFindings, {
+    fields: [findingHighlights.findingId],
+    references: [sessionFindings.id],
+  }),
+  response: one(blockResponses, {
+    fields: [findingHighlights.responseId],
+    references: [blockResponses.id],
+  }),
+}));
+
+export type FindingHighlight = typeof findingHighlights.$inferSelect;
+export type NewFindingHighlight = typeof findingHighlights.$inferInsert;

@@ -1,12 +1,16 @@
 import { notFound } from 'next/navigation';
-import { getPublishedFindingByToken } from '@/lib/repositories/findings';
-import { getSessionWithBlocks } from '@/lib/repositories/sessions';
+import {
+  getPublishedFindingByToken,
+  listHighlightsForFinding,
+} from '@/lib/repositories/findings';
 import {
   listParticipantsForSession,
   getAllResponsesForSession,
 } from '@/lib/repositories/participant-sessions';
 import { ANCHOR_BLOCK_TYPES } from '@/lib/domain/blocks';
 import { MarkdownWithCitations } from '@/components/findings/MarkdownWithCitations';
+import { HighlightCard, type HighlightDisplay } from '@/components/findings/HighlightCard';
+import { UpgradePrompt } from '@/components/findings/UpgradePrompt';
 import type { CitationSource } from '@/components/findings/CitationPill';
 import type { SessionBlock } from '@/lib/db/schema';
 
@@ -31,6 +35,29 @@ export default async function PublicFindingsPage({ params }: Props) {
 
   const sources = buildCitationSources({ session: session.blocks, participants, responses });
 
+  // Pinned highlights (Story 6.2) — rendered above the markdown body
+  const highlightsRaw = await listHighlightsForFinding(finding.id);
+  const partNumberById = new Map<number, number>();
+  participants.forEach((p, idx) => {
+    partNumberById.set(p.id, participants.length - idx);
+  });
+  const blockLabelById = new Map<number, string>();
+  for (const b of session.blocks) {
+    if (ANCHOR_BLOCK_TYPES.includes(b.blockType as 'welcome' | 'thank_you')) continue;
+    const cfg = (b.config ?? {}) as Record<string, unknown>;
+    blockLabelById.set(
+      b.id,
+      typeof cfg.question === 'string' ? cfg.question : b.blockType
+    );
+  }
+  const highlights: HighlightDisplay[] = highlightsRaw.map((h) => ({
+    id: h.highlight.id,
+    participantNumber: partNumberById.get(h.participantSessionId) ?? 0,
+    question: blockLabelById.get(h.blockId) ?? h.question,
+    text: stringifyForDisplay(h.value),
+    customNote: h.highlight.customNote,
+  }));
+
   return (
     <div className="min-h-screen bg-background flex flex-col">
       <main className="flex-1 px-6 py-12">
@@ -40,12 +67,29 @@ export default async function PublicFindingsPage({ params }: Props) {
               {finding.title}
             </h1>
           )}
+
+          {highlights.length > 0 && (
+            <section className="space-y-4">
+              <h2 className="text-sm uppercase tracking-wide text-muted-foreground">
+                Quotes marquantes
+              </h2>
+              <div className="space-y-3">
+                {highlights.map((h) => (
+                  <HighlightCard key={h.id} highlight={h} />
+                ))}
+              </div>
+            </section>
+          )}
+
           <MarkdownWithCitations
             markdown={finding.bodyMarkdown}
             sources={sources}
             withParticipantLink={false}
           />
         </article>
+
+        {/* Story 6.3 — soft upgrade CTA appearing on scroll */}
+        <UpgradePrompt />
       </main>
       <footer className="border-t border-border py-6 text-center text-xs text-muted-foreground">
         Rapport généré avec{' '}

@@ -3,9 +3,9 @@
 | ID    | Titre                                              | Statut       | Commit     |
 |-------|----------------------------------------------------|--------------|------------|
 | 6.1   | AI-assisted findings with sourced citations (markdown editor) | ✅ Done | feat 6.1 |
-| 6.2   | Pin / highlight quotes manually                    | À faire      | —          |
-| 6.3   | Upgrade prompt at scroll depth                     | À faire      | —          |
-| **6.4** | **Notion-style block editor with slash commands** | **À faire (NEW)** | — |
+| 6.2   | Pin / highlight quotes manually                    | ✅ Done      | feat 6.2   |
+| 6.3   | Upgrade prompt at scroll depth                     | ✅ Done      | feat 6.3   |
+| 6.4   | Notion-style block editor with slash commands      | À faire (planifié) | — |
 
 ---
 

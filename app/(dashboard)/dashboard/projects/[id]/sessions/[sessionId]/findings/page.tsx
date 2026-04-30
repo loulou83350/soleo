@@ -8,13 +8,17 @@ import {
   listParticipantsForSession,
   getAllResponsesForSession,
 } from '@/lib/repositories/participant-sessions';
-import { getOrCreateFinding } from '@/lib/repositories/findings';
+import {
+  getOrCreateFinding,
+  listHighlightsForFinding,
+} from '@/lib/repositories/findings';
 import {
   getActiveProvider,
   getAvailableProviders,
 } from '@/lib/ai/providers';
 import { ANCHOR_BLOCK_TYPES } from '@/lib/domain/blocks';
 import { FindingsEditor } from './FindingsEditor';
+import { HighlightCard, type HighlightDisplay } from '@/components/findings/HighlightCard';
 import type { CitationSource } from '@/components/findings/CitationPill';
 
 interface Props {
@@ -44,6 +48,20 @@ export default async function FindingsPage({ params }: Props) {
     getAllResponsesForSession(sessionId),
   ]);
   if (!finding) notFound();
+
+  // Pinned highlights for this finding (Story 6.2)
+  const highlightsRaw = await listHighlightsForFinding(finding.id);
+  const partNumberById = new Map<number, number>();
+  participants.forEach((p, idx) => {
+    partNumberById.set(p.id, participants.length - idx);
+  });
+  const highlights: HighlightDisplay[] = highlightsRaw.map((h) => ({
+    id: h.highlight.id,
+    participantNumber: partNumberById.get(h.participantSessionId) ?? 0,
+    question: h.question,
+    text: stringifyResponseForDisplay(h.value),
+    customNote: h.highlight.customNote,
+  }));
 
   // Build the citation source map for the renderer
   const sources = buildCitationSources({
@@ -75,6 +93,28 @@ export default async function FindingsPage({ params }: Props) {
           activeProvider={activeProvider}
           context={{ projectId, sessionId }}
         />
+
+        {/* Pinned highlights (Story 6.2) — shown above the editor body */}
+        {highlights.length > 0 && (
+          <section className="space-y-3">
+            <header className="flex items-baseline justify-between">
+              <h2 className="text-sm font-medium text-foreground">
+                Quotes épinglées{' '}
+                <span className="text-muted-foreground font-normal">
+                  ({highlights.length})
+                </span>
+              </h2>
+              <p className="text-xs text-muted-foreground">
+                Apparaîtront en haut du rapport public, avant le markdown
+              </p>
+            </header>
+            <div className="space-y-3">
+              {highlights.map((h) => (
+                <HighlightCard key={h.id} highlight={h} />
+              ))}
+            </div>
+          </section>
+        )}
       </div>
     </div>
   );
