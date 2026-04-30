@@ -2,6 +2,9 @@
 
 import { useActionState, useEffect, useState } from 'react';
 import posthog from 'posthog-js';
+import { getCurrentMonthUsageAction } from './usage-actions';
+import type { UsageSummary } from '@/lib/repositories/ai-usage';
+import { formatUsd } from '@/lib/ai/usage';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -272,6 +275,118 @@ function FigmaIntegrationCard() {
   );
 }
 
+// ─── AI Usage (this month) ──────────────────────────────────────────────────
+
+const FEATURE_LABELS: Record<string, string> = {
+  tag_suggest: 'Suggestion de tags (manuel)',
+  auto_tag: 'Tagging automatique',
+  findings_generate: 'Génération de rapports',
+};
+
+function AIUsageCard() {
+  const [summary, setSummary] = useState<UsageSummary | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    getCurrentMonthUsageAction().then((res) => {
+      if (cancelled) return;
+      if (res.ok) {
+        setSummary(res.summary);
+      } else {
+        setError(res.error);
+      }
+      setLoading(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Utilisation IA (ce mois-ci)</CardTitle>
+        <CardDescription>
+          Tokens consommés et coût estimé sur l'ensemble des appels IA de
+          votre équipe depuis le début du mois.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {loading && (
+          <div className="text-sm text-muted-foreground">Chargement…</div>
+        )}
+        {error && (
+          <div className="text-sm text-red-500">{error}</div>
+        )}
+        {summary && !loading && summary.totalCalls === 0 && (
+          <div className="text-sm text-muted-foreground">
+            Aucun appel IA enregistré ce mois-ci.
+          </div>
+        )}
+        {summary && summary.totalCalls > 0 && (
+          <div className="space-y-4">
+            <div className="grid grid-cols-3 gap-3">
+              <div className="rounded-md border border-border bg-background p-3">
+                <div className="text-xs text-muted-foreground">Appels</div>
+                <div className="text-xl font-semibold">{summary.totalCalls}</div>
+              </div>
+              <div className="rounded-md border border-border bg-background p-3">
+                <div className="text-xs text-muted-foreground">Tokens (in / out)</div>
+                <div className="text-sm font-semibold">
+                  {summary.totalInputTokens.toLocaleString()} /{' '}
+                  {summary.totalOutputTokens.toLocaleString()}
+                </div>
+              </div>
+              <div className="rounded-md border border-border bg-background p-3">
+                <div className="text-xs text-muted-foreground">Coût estimé</div>
+                <div className="text-xl font-semibold">
+                  {formatUsd(summary.totalCostUsdMicros)}
+                </div>
+              </div>
+            </div>
+
+            <div className="border border-border rounded-md overflow-hidden">
+              <table className="w-full text-sm">
+                <thead className="bg-muted/40">
+                  <tr className="text-left">
+                    <th className="px-3 py-2 font-medium">Fonctionnalité</th>
+                    <th className="px-3 py-2 font-medium text-right">Appels</th>
+                    <th className="px-3 py-2 font-medium text-right">Tokens</th>
+                    <th className="px-3 py-2 font-medium text-right">Coût</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {summary.byFeature.map((row) => (
+                    <tr key={row.feature} className="border-t border-border">
+                      <td className="px-3 py-2">
+                        {FEATURE_LABELS[row.feature] ?? row.feature}
+                      </td>
+                      <td className="px-3 py-2 text-right">{row.calls}</td>
+                      <td className="px-3 py-2 text-right">
+                        {(row.inputTokens + row.outputTokens).toLocaleString()}
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        {formatUsd(row.costUsdMicros)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <p className="text-xs text-muted-foreground">
+              Coût indicatif basé sur les tarifs publics des fournisseurs au
+              moment du calcul. Mise à jour à chaque appel.
+            </p>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 // ─── Privacy / analytics opt-out ─────────────────────────────────────────────
 
 function PrivacyCard() {
@@ -383,6 +498,9 @@ export default function GeneralPage() {
 
         {/* Figma integration */}
         <FigmaIntegrationCard />
+
+        {/* AI usage (this month) */}
+        <AIUsageCard />
 
         {/* Privacy / analytics opt-out */}
         <PrivacyCard />

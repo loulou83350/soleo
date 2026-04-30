@@ -164,6 +164,12 @@ export async function generateFindingDraftAction(
       blocks: blocksInput,
       tagsByBlock,
       provider: providerOverride,
+      usage: {
+        teamId: userWithTeam.teamId,
+        userId: user.id,
+        feature: 'findings_generate',
+        sessionId,
+      },
     });
   } catch (err) {
     return {

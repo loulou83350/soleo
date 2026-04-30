@@ -441,3 +441,50 @@ export const findingHighlightsRelations = relations(findingHighlights, ({ one })
 
 export type FindingHighlight = typeof findingHighlights.$inferSelect;
 export type NewFindingHighlight = typeof findingHighlights.$inferInsert;
+
+// ─── AI Usage Logs (cost + token tracking) ───────────────────────────────────
+//
+// Logged after every successful or failed AI provider call. Cost is stored
+// in micro-USD (1 USD = 1_000_000 micros) to avoid floating-point math.
+// Aggregations query by (teamId, createdAt) — see lib/repositories/ai-usage.ts.
+
+export const aiUsageLogs = pgTable('ai_usage_logs', {
+  id: serial('id').primaryKey(),
+  teamId: integer('team_id').references(() => teams.id, {
+    onDelete: 'cascade',
+  }),
+  userId: integer('user_id').references(() => users.id, {
+    onDelete: 'set null',
+  }),
+  /** Soleo feature: 'tag_suggest' | 'findings_generate' | 'auto_tag' */
+  feature: varchar('feature', { length: 32 }).notNull(),
+  /** Provider name: 'anthropic' | 'gemini' | 'openai' */
+  provider: varchar('provider', { length: 16 }).notNull(),
+  /** Concrete model used, e.g. 'claude-haiku-4-5' */
+  model: varchar('model', { length: 64 }).notNull(),
+  inputTokens: integer('input_tokens').notNull().default(0),
+  outputTokens: integer('output_tokens').notNull().default(0),
+  /** Cost in micro-USD (integer): 1_000_000 = 1 USD */
+  costUsdMicros: integer('cost_usd_micros').notNull().default(0),
+  /** 'ok' | 'error' */
+  status: varchar('status', { length: 16 }).notNull().default('ok'),
+  errorMessage: text('error_message'),
+  /** Optional: which session this call was for (debug / per-session aggregations) */
+  sessionId: integer('session_id'),
+  durationMs: integer('duration_ms').notNull().default(0),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+});
+
+export const aiUsageLogsRelations = relations(aiUsageLogs, ({ one }) => ({
+  team: one(teams, {
+    fields: [aiUsageLogs.teamId],
+    references: [teams.id],
+  }),
+  user: one(users, {
+    fields: [aiUsageLogs.userId],
+    references: [users.id],
+  }),
+}));
+
+export type AIUsageLog = typeof aiUsageLogs.$inferSelect;
+export type NewAIUsageLog = typeof aiUsageLogs.$inferInsert;

@@ -169,6 +169,11 @@ export async function suggestTagsAction(
       question,
       existingTags: existingLabels,
       provider: providerOverride,
+      usage: {
+        teamId: userWithTeam.teamId,
+        userId: user.id,
+        feature: 'tag_suggest',
+      },
     });
     return { success: true, data: { suggestions } };
   } catch (err) {

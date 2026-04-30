@@ -157,6 +157,11 @@ async function autoTagResponse(
     blockType: row.blockType,
     question,
     existingTags: teamTags.map((t) => t.label),
+    usage: {
+      teamId: row.teamId,
+      userId: null, // system-attributed (participant flow, no logged-in user)
+      feature: 'auto_tag',
+    },
   });
 
   for (const s of suggestions) {

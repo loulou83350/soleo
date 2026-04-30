@@ -4,7 +4,25 @@
 //   2. AI_PROVIDER env var (anthropic | gemini)
 //   3. First key found among ANTHROPIC_API_KEY / GEMINI_API_KEY
 
+import { logAIUsage, type AIFeature } from './usage';
+
 export type AIProvider = 'anthropic' | 'gemini' | 'openai';
+
+/** Context for per-call usage logging. Passed by callers (server actions). */
+export interface AIUsageContext {
+  teamId: number | null;
+  userId: number | null;
+  feature: AIFeature;
+  sessionId?: number | null;
+}
+
+/** Internal: every low-level call function returns tokens + model. */
+interface ProviderResult {
+  text: string;
+  inputTokens: number;
+  outputTokens: number;
+  model: string;
+}
 
 export interface TagSuggestion {
   label: string;
@@ -19,6 +37,8 @@ interface SuggestParams {
   question?: string;
   existingTags: string[];
   provider?: AIProvider;
+  /** Optional usage logging context (skipped if absent) */
+  usage?: AIUsageContext;
 }
 
 const PROMPT_TEMPLATE = (p: SuggestParams) => {
@@ -72,21 +92,66 @@ export async function suggestTagsForResponse(
     throw new Error('No AI provider configured (ANTHROPIC_API_KEY or GEMINI_API_KEY)');
   }
   const prompt = PROMPT_TEMPLATE(params);
-  let raw: string;
-  switch (provider) {
-    case 'anthropic': raw = await callAnthropic(prompt); break;
-    case 'gemini':    raw = await callGemini(prompt);    break;
-    case 'openai':    raw = await callOpenAI(prompt);    break;
+  const started = Date.now();
+  let result: ProviderResult;
+  try {
+    switch (provider) {
+      case 'anthropic':
+        result = await callAnthropic(prompt, 400, 0.2);
+        break;
+      case 'gemini':
+        result = await callGemini(prompt, 400, 0.2, true);
+        break;
+      case 'openai':
+        result = await callOpenAI(prompt, 400, 0.2, true);
+        break;
+    }
+  } catch (e) {
+    if (params.usage) {
+      await logAIUsage({
+        teamId: params.usage.teamId,
+        userId: params.usage.userId,
+        feature: params.usage.feature,
+        provider,
+        model: '',
+        inputTokens: 0,
+        outputTokens: 0,
+        status: 'error',
+        errorMessage: (e as Error).message?.slice(0, 500) ?? 'unknown',
+        sessionId: params.usage.sessionId ?? null,
+        durationMs: Date.now() - started,
+      });
+    }
+    throw e;
   }
-  return parseTagsResponse(raw);
+  if (params.usage) {
+    await logAIUsage({
+      teamId: params.usage.teamId,
+      userId: params.usage.userId,
+      feature: params.usage.feature,
+      provider,
+      model: result.model,
+      inputTokens: result.inputTokens,
+      outputTokens: result.outputTokens,
+      status: 'ok',
+      sessionId: params.usage.sessionId ?? null,
+      durationMs: Date.now() - started,
+    });
+  }
+  return parseTagsResponse(result.text);
 }
 
 // ─── Anthropic ───────────────────────────────────────────────────────────────
 
-async function callAnthropic(prompt: string): Promise<string> {
+async function callAnthropic(
+  prompt: string,
+  maxTokens: number,
+  temperature: number
+): Promise<ProviderResult> {
   const key = process.env.ANTHROPIC_API_KEY;
   if (!key) throw new Error('ANTHROPIC_API_KEY missing');
 
+  const model = 'claude-haiku-4-5';
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
@@ -95,9 +160,9 @@ async function callAnthropic(prompt: string): Promise<string> {
       'anthropic-version': '2023-06-01',
     },
     body: JSON.stringify({
-      model: 'claude-haiku-4-5',
-      max_tokens: 400,
-      temperature: 0.2,
+      model,
+      max_tokens: maxTokens,
+      temperature,
       messages: [{ role: 'user', content: prompt }],
     }),
   });
@@ -108,28 +173,42 @@ async function callAnthropic(prompt: string): Promise<string> {
   }
   const data = (await res.json()) as {
     content: Array<{ type: string; text?: string }>;
+    usage?: { input_tokens?: number; output_tokens?: number };
   };
-  return data.content?.find((c) => c.type === 'text')?.text ?? '';
+  return {
+    text: data.content?.find((c) => c.type === 'text')?.text ?? '',
+    inputTokens: data.usage?.input_tokens ?? 0,
+    outputTokens: data.usage?.output_tokens ?? 0,
+    model,
+  };
 }
 
 // ─── Gemini ──────────────────────────────────────────────────────────────────
 
-async function callGemini(prompt: string): Promise<string> {
+async function callGemini(
+  prompt: string,
+  maxOutputTokens: number,
+  temperature: number,
+  jsonMode: boolean
+): Promise<ProviderResult> {
   const key = process.env.GEMINI_API_KEY;
   if (!key) throw new Error('GEMINI_API_KEY missing');
 
+  const model = 'gemini-2.0-flash';
+  const generationConfig: Record<string, unknown> = {
+    temperature,
+    maxOutputTokens,
+  };
+  if (jsonMode) generationConfig.responseMimeType = 'application/json';
+
   const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${key}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`,
     {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: {
-          temperature: 0.2,
-          maxOutputTokens: 400,
-          responseMimeType: 'application/json',
-        },
+        generationConfig,
       }),
     }
   );
@@ -140,15 +219,38 @@ async function callGemini(prompt: string): Promise<string> {
   }
   const data = (await res.json()) as {
     candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+    usageMetadata?: {
+      promptTokenCount?: number;
+      candidatesTokenCount?: number;
+    };
   };
-  return data.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
+  return {
+    text: data.candidates?.[0]?.content?.parts?.[0]?.text ?? '',
+    inputTokens: data.usageMetadata?.promptTokenCount ?? 0,
+    outputTokens: data.usageMetadata?.candidatesTokenCount ?? 0,
+    model,
+  };
 }
 
 // ─── OpenAI ──────────────────────────────────────────────────────────────────
 
-async function callOpenAI(prompt: string): Promise<string> {
+async function callOpenAI(
+  prompt: string,
+  maxTokens: number,
+  temperature: number,
+  jsonMode: boolean
+): Promise<ProviderResult> {
   const key = process.env.OPENAI_API_KEY;
   if (!key) throw new Error('OPENAI_API_KEY missing');
+
+  const model = process.env.OPENAI_MODEL ?? 'gpt-4o-mini';
+  const body: Record<string, unknown> = {
+    model,
+    max_tokens: maxTokens,
+    temperature,
+    messages: [{ role: 'user', content: prompt }],
+  };
+  if (jsonMode) body.response_format = { type: 'json_object' };
 
   const res = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
@@ -156,24 +258,23 @@ async function callOpenAI(prompt: string): Promise<string> {
       'content-type': 'application/json',
       authorization: `Bearer ${key}`,
     },
-    body: JSON.stringify({
-      // Small + fast model — sufficient for short JSON output
-      model: process.env.OPENAI_MODEL ?? 'gpt-4o-mini',
-      max_tokens: 400,
-      temperature: 0.2,
-      response_format: { type: 'json_object' },
-      messages: [{ role: 'user', content: prompt }],
-    }),
+    body: JSON.stringify(body),
   });
 
   if (!res.ok) {
-    const body = await res.text().catch(() => '');
-    throw new Error(`OpenAI API ${res.status}: ${body.slice(0, 200)}`);
+    const errBody = await res.text().catch(() => '');
+    throw new Error(`OpenAI API ${res.status}: ${errBody.slice(0, 200)}`);
   }
   const data = (await res.json()) as {
     choices?: Array<{ message?: { content?: string } }>;
+    usage?: { prompt_tokens?: number; completion_tokens?: number };
   };
-  return data.choices?.[0]?.message?.content ?? '';
+  return {
+    text: data.choices?.[0]?.message?.content ?? '',
+    inputTokens: data.usage?.prompt_tokens ?? 0,
+    outputTokens: data.usage?.completion_tokens ?? 0,
+    model,
+  };
 }
 
 // ─── Findings report generation (Story 6.1) ─────────────────────────────────
@@ -203,6 +304,8 @@ export interface GenerateFindingsParams {
   provider?: AIProvider;
   /** Cap responses per block to this many (cost control). Default 80. */
   maxResponsesPerBlock?: number;
+  /** Optional usage logging context (skipped if absent) */
+  usage?: AIUsageContext;
 }
 
 /**
@@ -289,93 +392,58 @@ export async function generateFindingsReport(
     throw new Error('No AI provider configured (ANTHROPIC_API_KEY, GEMINI_API_KEY or OPENAI_API_KEY)');
   }
   const prompt = buildFindingsPrompt(params);
+  const started = Date.now();
 
-  let raw: string;
-  switch (provider) {
-    case 'anthropic': raw = await callAnthropicLong(prompt); break;
-    case 'gemini':    raw = await callGeminiLong(prompt);    break;
-    case 'openai':    raw = await callOpenAILong(prompt);    break;
-  }
-  return raw;
-}
-
-// Long-output variants (~3000 tokens, vs 400 for tag suggestion).
-// Same endpoints, larger max_tokens, no JSON mode (output is markdown).
-
-async function callAnthropicLong(prompt: string): Promise<string> {
-  const key = process.env.ANTHROPIC_API_KEY;
-  if (!key) throw new Error('ANTHROPIC_API_KEY missing');
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      'x-api-key': key,
-      'anthropic-version': '2023-06-01',
-    },
-    body: JSON.stringify({
-      model: 'claude-haiku-4-5',
-      max_tokens: 3000,
-      temperature: 0.4,
-      messages: [{ role: 'user', content: prompt }],
-    }),
-  });
-  if (!res.ok) {
-    const body = await res.text().catch(() => '');
-    throw new Error(`Anthropic API ${res.status}: ${body.slice(0, 200)}`);
-  }
-  const data = (await res.json()) as { content: Array<{ type: string; text?: string }> };
-  return data.content?.find((c) => c.type === 'text')?.text ?? '';
-}
-
-async function callGeminiLong(prompt: string): Promise<string> {
-  const key = process.env.GEMINI_API_KEY;
-  if (!key) throw new Error('GEMINI_API_KEY missing');
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${key}`,
-    {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0.4, maxOutputTokens: 3000 },
-      }),
+  let result: ProviderResult;
+  try {
+    switch (provider) {
+      case 'anthropic':
+        result = await callAnthropic(prompt, 3000, 0.4);
+        break;
+      case 'gemini':
+        result = await callGemini(prompt, 3000, 0.4, false);
+        break;
+      case 'openai':
+        result = await callOpenAI(prompt, 3000, 0.4, false);
+        break;
     }
-  );
-  if (!res.ok) {
-    const body = await res.text().catch(() => '');
-    throw new Error(`Gemini API ${res.status}: ${body.slice(0, 200)}`);
+  } catch (e) {
+    if (params.usage) {
+      await logAIUsage({
+        teamId: params.usage.teamId,
+        userId: params.usage.userId,
+        feature: params.usage.feature,
+        provider,
+        model: '',
+        inputTokens: 0,
+        outputTokens: 0,
+        status: 'error',
+        errorMessage: (e as Error).message?.slice(0, 500) ?? 'unknown',
+        sessionId: params.usage.sessionId ?? null,
+        durationMs: Date.now() - started,
+      });
+    }
+    throw e;
   }
-  const data = (await res.json()) as {
-    candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
-  };
-  return data.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
+  if (params.usage) {
+    await logAIUsage({
+      teamId: params.usage.teamId,
+      userId: params.usage.userId,
+      feature: params.usage.feature,
+      provider,
+      model: result.model,
+      inputTokens: result.inputTokens,
+      outputTokens: result.outputTokens,
+      status: 'ok',
+      sessionId: params.usage.sessionId ?? null,
+      durationMs: Date.now() - started,
+    });
+  }
+  return result.text;
 }
 
-async function callOpenAILong(prompt: string): Promise<string> {
-  const key = process.env.OPENAI_API_KEY;
-  if (!key) throw new Error('OPENAI_API_KEY missing');
-  const res = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      authorization: `Bearer ${key}`,
-    },
-    body: JSON.stringify({
-      model: process.env.OPENAI_MODEL ?? 'gpt-4o-mini',
-      max_tokens: 3000,
-      temperature: 0.4,
-      messages: [{ role: 'user', content: prompt }],
-    }),
-  });
-  if (!res.ok) {
-    const body = await res.text().catch(() => '');
-    throw new Error(`OpenAI API ${res.status}: ${body.slice(0, 200)}`);
-  }
-  const data = (await res.json()) as {
-    choices?: Array<{ message?: { content?: string } }>;
-  };
-  return data.choices?.[0]?.message?.content ?? '';
-}
+// Long-output variants merged into the parametrized callers above —
+// `generateFindingsReport` passes maxTokens=3000, temperature=0.4, jsonMode=false.
 
 // ─── Response parsing (lenient) ──────────────────────────────────────────────
 
