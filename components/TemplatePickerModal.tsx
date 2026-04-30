@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { X, Clock, FileText, Loader2 } from 'lucide-react';
 import { TEMPLATES } from '@/lib/domain/templates';
 import { createSessionFromTemplateAction, createSessionAction } from '@/app/(dashboard)/dashboard/projects/[id]/sessions/actions';
+import { track } from '@/lib/analytics/track';
 
 // ─── Category badge colors ───────────────────────────────────────────────────
 
@@ -42,6 +43,11 @@ export function TemplatePickerModal({ projectId, onClose }: TemplatePickerModalP
     setCreating(templateId);
     const result = await createSessionFromTemplateAction(projectId, templateId);
     if (result.success) {
+      track('session_created', {
+        project_id: projectId,
+        session_id: result.data.sessionId,
+        from_template: templateId,
+      });
       router.push(`/dashboard/projects/${projectId}/sessions/${result.data.sessionId}/builder`);
     } else {
       setCreating(null);
@@ -54,6 +60,8 @@ export function TemplatePickerModal({ projectId, onClose }: TemplatePickerModalP
     setCreating('blank');
     const fd = new FormData();
     fd.append('projectId', String(projectId));
+    // Capture before the action because the server action redirects on success
+    track('session_created', { project_id: projectId, from_template: 'blank' });
     await createSessionAction(fd);
     // createSessionAction does a server-side redirect, so we won't reach here
   }

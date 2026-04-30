@@ -14,6 +14,7 @@ import {
 } from './actions';
 import type { SessionFinding } from '@/lib/db/schema';
 import type { AIProvider } from '@/lib/ai/providers';
+import { track } from '@/lib/analytics/track';
 
 interface Props {
   finding: SessionFinding;
@@ -91,6 +92,10 @@ export function FindingsEditor({
       setGenError(res.success ? null : (res.error ?? 'Erreur'));
       return;
     }
+    track('findings_ai_generated', {
+      session_id: context.sessionId,
+      provider: provider ?? null,
+    });
     setBody(res.data.markdown);
     // Skip the next debounced save (the action already saved)
     dirtyRef.current = false;
@@ -102,6 +107,7 @@ export function FindingsEditor({
     startTransition(async () => {
       const res = await publishFindingAction(finding.id);
       if (res.success && res.data) {
+        track('findings_published', { session_id: context.sessionId });
         setIsPublished(true);
         setPublicToken(res.data.token);
         revalidateFindingPath(context.projectId, context.sessionId);

@@ -219,7 +219,7 @@ export const signUp = validatedAction(signUpSchema, async (data, formData) => {
     return createCheckoutSession({ team: createdTeam, priceId });
   }
 
-  redirect('/dashboard');
+  redirect('/dashboard?welcome=1');
 });
 
 export async function signOut() {

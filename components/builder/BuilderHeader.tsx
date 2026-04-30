@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { updateSessionTitleAction, publishSessionAction } from '@/app/(dashboard)/dashboard/projects/[id]/sessions/actions';
 import type { ValidationIssue } from '@/lib/domain/types';
+import { track } from '@/lib/analytics/track';
 
 type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
 type PublishStatus = 'idle' | 'publishing';
@@ -107,6 +108,7 @@ export function BuilderHeader({
     setPublishStatus('idle');
 
     if (result.ok) {
+      track('session_published', { session_id: sessionId });
       setSessionToken(result.token);
       await copyLink(result.token);
       toast.success('Session live — lien copié !');

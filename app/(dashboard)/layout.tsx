@@ -1,7 +1,9 @@
 'use client';
 
 import Link from 'next/link';
-import { useState, Suspense } from 'react';
+import { useEffect, useState, Suspense } from 'react';
+import { usePathname, useSearchParams } from 'next/navigation';
+import { track } from '@/lib/analytics/track';
 import { Button } from '@/components/ui/button';
 import { LogOut, User } from 'lucide-react';
 import {
@@ -15,6 +17,7 @@ import { signOut } from '@/app/(login)/actions';
 import { useRouter } from 'next/navigation';
 import { User as UserType } from '@/lib/db/schema';
 import useSWR, { mutate } from 'swr';
+import { PostHogProvider } from '@/components/providers/PostHogProvider';
 
 const fetcher = (url: string) => fetch(url).then((res) => res.json());
 
@@ -81,6 +84,28 @@ function UserMenu() {
   );
 }
 
+/**
+ * Detects `?welcome=1` (set by signUp action redirect) and fires
+ * `signup_completed` exactly once. Strips the param from the URL afterward.
+ */
+function SignupTracker() {
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
+  useEffect(() => {
+    if (searchParams?.get('welcome') !== '1') return;
+    track('signup_completed', { via: 'email' });
+    // Strip the param without adding to history
+    const url = new URL(window.location.href);
+    url.searchParams.delete('welcome');
+    window.history.replaceState({}, '', url.toString());
+    // pathname dep ensures we don't re-fire on unrelated re-renders
+    void pathname;
+  }, [pathname, searchParams]);
+
+  return null;
+}
+
 function Header() {
   return (
     <header className="h-14 border-b border-border bg-surface flex items-center">
@@ -102,10 +127,22 @@ function Header() {
 }
 
 export default function Layout({ children }: { children: React.ReactNode }) {
+  // Same SWR cache key as <UserMenu/> — dedupes the request
+  const { data: user } = useSWR<UserType>('/api/user', fetcher);
+
+  const phUser = user
+    ? { id: user.id, email: user.email, teamId: null }
+    : null;
+
   return (
-    <section className="flex flex-col min-h-screen bg-background">
-      <Header />
-      {children}
-    </section>
+    <PostHogProvider user={phUser}>
+      <Suspense fallback={null}>
+        <SignupTracker />
+      </Suspense>
+      <section className="flex flex-col min-h-screen bg-background">
+        <Header />
+        {children}
+      </section>
+    </PostHogProvider>
   );
 }

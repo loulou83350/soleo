@@ -1,6 +1,7 @@
 'use client';
 
-import { useActionState, useState } from 'react';
+import { useActionState, useEffect, useState } from 'react';
+import posthog from 'posthog-js';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -271,6 +272,69 @@ function FigmaIntegrationCard() {
   );
 }
 
+// ─── Privacy / analytics opt-out ─────────────────────────────────────────────
+
+function PrivacyCard() {
+  const [optedOut, setOptedOut] = useState(false);
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (!process.env.NEXT_PUBLIC_POSTHOG_KEY) {
+      setReady(true);
+      return;
+    }
+    try {
+      setOptedOut(posthog.has_opted_out_capturing());
+    } catch {
+      // posthog not yet initialized — leave default (false)
+    }
+    setReady(true);
+  }, []);
+
+  function toggle(nextOptedOut: boolean) {
+    if (typeof window === 'undefined') return;
+    if (nextOptedOut) {
+      posthog.opt_out_capturing();
+    } else {
+      posthog.opt_in_capturing();
+    }
+    setOptedOut(nextOptedOut);
+  }
+
+  if (!process.env.NEXT_PUBLIC_POSTHOG_KEY) {
+    return null;
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Confidentialité</CardTitle>
+        <CardDescription>
+          Soleo utilise des analytics anonymisés pour améliorer le produit.
+          Aucune donnée participant n'est jamais collectée.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <label className="flex items-start gap-3 cursor-pointer">
+          <input
+            type="checkbox"
+            className="mt-1"
+            checked={ready ? !optedOut : true}
+            onChange={(e) => toggle(!e.target.checked)}
+            disabled={!ready}
+          />
+          <span className="text-sm text-muted-foreground">
+            Partager des analytics anonymes pour aider à améliorer Soleo.
+            Vous pouvez désactiver à tout moment — vos préférences sont
+            conservées sur cet appareil.
+          </span>
+        </label>
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function GeneralPage() {
   const [state, formAction, isPending] = useActionState<ActionState, FormData>(
     updateAccount,
@@ -319,6 +383,9 @@ export default function GeneralPage() {
 
         {/* Figma integration */}
         <FigmaIntegrationCard />
+
+        {/* Privacy / analytics opt-out */}
+        <PrivacyCard />
       </div>
     </section>
   );

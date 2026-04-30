@@ -48,6 +48,7 @@
     "next": "15.6.0-canary.59",
     "postcss": "^8.5.3",
     "postgres": "^3.4.5",
+    "posthog-js": "^1.372.5",
     "radix-ui": "^1.4.2",
     "react": "19.1.0",
     "react-dom": "19.1.0",

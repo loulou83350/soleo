@@ -13,6 +13,7 @@ import {
 } from '@/app/(dashboard)/dashboard/projects/[id]/sessions/[sessionId]/participants/[participantToken]/actions';
 import type { InsightTag, TagSource } from '@/lib/db/schema';
 import type { AIProvider, TagSuggestion } from '@/lib/ai/providers';
+import { track } from '@/lib/analytics/track';
 
 interface AttachedTag {
   tag: InsightTag;
@@ -103,6 +104,7 @@ export function TagEditor({
         // rollback
         setAttached((prev) => prev.filter((a) => a.tag.id !== tag.id));
       } else {
+        track('tag_attached', { source });
         refreshPath();
       }
     });
@@ -127,6 +129,7 @@ export function TagEditor({
         return;
       }
       const tag = res.data.tag;
+      track('tag_created', {});
       setAllTeamTags((prev) =>
         prev.some((t) => t.id === tag.id) ? prev : [...prev, tag]
       );
@@ -138,6 +141,7 @@ export function TagEditor({
       if (!a.success) {
         setAttached((cur) => cur.filter((x) => x.tag.id !== tag.id));
       } else {
+        track('tag_attached', { source: 'manual' });
         refreshPath();
       }
     });

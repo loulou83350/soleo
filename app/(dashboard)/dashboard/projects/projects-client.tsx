@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { createProjectAction, deleteProjectAction } from './actions';
 import type { Project } from '@/lib/db/schema';
+import { track } from '@/lib/analytics/track';
 
 interface ProjectsClientProps {
   initialProjects: Project[];
@@ -36,6 +37,7 @@ function CreateProjectDialog({
     startTransition(async () => {
       const result = await createProjectAction(formData);
       if (result.success) {
+        track('project_created', { project_id: result.data.id });
         onCreated(result.data);
         onClose();
         toast.success('Projet créé avec succès');
