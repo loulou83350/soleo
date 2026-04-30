@@ -8,10 +8,16 @@ import {
   getParticipantSession,
   getBlockResponses,
 } from '@/lib/repositories/participant-sessions';
+import { listTeamTags, listTagsForResponses } from '@/lib/repositories/tags';
+import {
+  getActiveProvider,
+  getAvailableProviders,
+} from '@/lib/ai/providers';
 import { formatDuration, formatRelativeDate } from '@/lib/utils';
 import { ANCHOR_BLOCK_TYPES } from '@/lib/domain/blocks';
 import { ResponseRenderer } from './ResponseRenderer';
-import type { SessionBlock } from '@/lib/db/schema';
+import { TagEditor } from '@/components/insights/TagEditor';
+import type { SessionBlock, InsightTag, TagSource } from '@/lib/db/schema';
 
 interface Props {
   params: Promise<{ id: string; sessionId: string; participantToken: string }>;
@@ -42,6 +48,16 @@ export default async function ParticipantDetailPage({ params }: Props) {
 
   const responses = await getBlockResponses(participant.id);
   const responseMap = new Map(responses.map((r) => [r.blockId, r.value]));
+  // blockId → response.id (needed to wire the TagEditor)
+  const responseIdByBlockId = new Map(responses.map((r) => [r.blockId, r.id]));
+
+  // Fetch tag attachments + team library + AI providers in parallel
+  const [tagsByResponse, teamTags] = await Promise.all([
+    listTagsForResponses(responses.map((r) => r.id)),
+    listTeamTags(userWithTeam.teamId),
+  ]);
+  const availableProviders = getAvailableProviders();
+  const activeProvider = getActiveProvider();
 
   const isCompleted = participant.status === 'completed';
   const durationSec =
@@ -107,14 +123,34 @@ export default async function ParticipantDetailPage({ params }: Props) {
               Cette session ne contient aucun bloc de question.
             </p>
           ) : (
-            answerBlocks.map((block, idx) => (
-              <BlockAnswer
-                key={block.id}
-                block={block}
-                index={idx + 1}
-                value={responseMap.get(block.id) ?? null}
-              />
-            ))
+            answerBlocks.map((block, idx) => {
+              const responseId = responseIdByBlockId.get(block.id);
+              const attached =
+                responseId != null
+                  ? (tagsByResponse.get(responseId) ?? []).map((a) => ({
+                      tag: a.tag,
+                      source: a.source,
+                    }))
+                  : [];
+              return (
+                <BlockAnswer
+                  key={block.id}
+                  block={block}
+                  index={idx + 1}
+                  value={responseMap.get(block.id) ?? null}
+                  responseId={responseId}
+                  attachedTags={attached}
+                  teamTags={teamTags}
+                  availableProviders={availableProviders}
+                  activeProvider={activeProvider}
+                  context={{
+                    projectId,
+                    sessionId,
+                    participantToken,
+                  }}
+                />
+              );
+            })
           )}
         </section>
       </div>
@@ -128,10 +164,22 @@ function BlockAnswer({
   block,
   index,
   value,
+  responseId,
+  attachedTags,
+  teamTags,
+  availableProviders,
+  activeProvider,
+  context,
 }: {
   block: SessionBlock;
   index: number;
   value: unknown;
+  responseId: number | undefined;
+  attachedTags: Array<{ tag: InsightTag; source: TagSource }>;
+  teamTags: InsightTag[];
+  availableProviders: ReturnType<typeof getAvailableProviders>;
+  activeProvider: ReturnType<typeof getActiveProvider>;
+  context: { projectId: number; sessionId: number; participantToken: string };
 }) {
   const config = (block.config ?? {}) as Record<string, unknown>;
   const question =
@@ -154,6 +202,20 @@ function BlockAnswer({
       </header>
 
       <ResponseRenderer block={block} value={value} />
+
+      {/* Tag editor — only when there's an actual response row to attach to */}
+      {responseId != null && (
+        <div className="pt-3 border-t border-border/60">
+          <TagEditor
+            responseId={responseId}
+            initialAttached={attachedTags}
+            teamTags={teamTags}
+            availableProviders={availableProviders}
+            activeProvider={activeProvider}
+            context={context}
+          />
+        </div>
+      )}
     </article>
   );
 }

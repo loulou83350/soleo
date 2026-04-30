@@ -1,5 +1,6 @@
 'use server';
 
+import { eq, and } from 'drizzle-orm';
 import {
   getSessionByToken,
   getSessionNotificationContext,
@@ -12,6 +13,19 @@ import {
   countCompletedParticipants,
 } from '@/lib/repositories/participant-sessions';
 import { recordConsent } from '@/lib/repositories/consent';
+import {
+  attachTag,
+  findOrCreateTagByLabel,
+  listTeamTags,
+} from '@/lib/repositories/tags';
+import { db } from '@/lib/db/drizzle';
+import {
+  blockResponses,
+  sessionBlocks,
+  participantSessions,
+  sessions,
+} from '@/lib/db/schema';
+import { suggestTagsForResponse } from '@/lib/ai/providers';
 import { comparePasswords } from '@/lib/auth/session';
 import { sendSessionCompletionEmail } from '@/lib/email/resend';
 import type { SessionWithBlocks } from '@/lib/db/schema';
@@ -80,9 +94,97 @@ export async function saveBlockResponseAction(
 
   try {
     await upsertBlockResponse(participantSession.id, blockId, value);
+
+    // Story 5.3 — auto-tagging hook (off by default).
+    // Runs in the background, never blocks the participant flow.
+    if (process.env.AI_AUTO_TAG === 'true') {
+      autoTagResponse(participantSession.id, blockId, value).catch((err) => {
+        console.error('[ai-auto-tag] failed:', err);
+      });
+    }
+
     return { success: true, data: undefined };
   } catch {
     return { success: false, error: 'Impossible de sauvegarder la réponse' };
+  }
+}
+
+/**
+ * Story 5.3 — fire-and-forget auto-tagging. Runs the configured AI provider
+ * over the just-saved response and attaches up to 3 tags with source='ai_auto'.
+ * Errors are logged but never thrown; the response itself is already persisted.
+ */
+async function autoTagResponse(
+  participantSessionId: number,
+  blockId: number,
+  value: unknown
+): Promise<void> {
+  // Look up the response row + block + team
+  const [row] = await db
+    .select({
+      responseId: blockResponses.id,
+      blockType: sessionBlocks.blockType,
+      blockConfig: sessionBlocks.config,
+      teamId: sessions.teamId,
+    })
+    .from(blockResponses)
+    .innerJoin(sessionBlocks, eq(blockResponses.blockId, sessionBlocks.id))
+    .innerJoin(
+      participantSessions,
+      eq(blockResponses.participantSessionId, participantSessions.id)
+    )
+    .innerJoin(sessions, eq(participantSessions.sessionId, sessions.id))
+    .where(
+      and(
+        eq(blockResponses.participantSessionId, participantSessionId),
+        eq(blockResponses.blockId, blockId)
+      )
+    )
+    .limit(1);
+  if (!row) return;
+
+  // Extract a textual representation
+  const text = stringifyValueForAI(row.blockType, value);
+  if (!text.trim()) return;
+
+  const teamTags = await listTeamTags(row.teamId);
+  const config = (row.blockConfig ?? {}) as Record<string, unknown>;
+  const question =
+    typeof config.question === 'string' ? (config.question as string) : undefined;
+
+  const suggestions = await suggestTagsForResponse({
+    responseText: text,
+    blockType: row.blockType,
+    question,
+    existingTags: teamTags.map((t) => t.label),
+  });
+
+  for (const s of suggestions) {
+    const tag = await findOrCreateTagByLabel({
+      teamId: row.teamId,
+      userId: null, // system-attributed
+      label: s.label,
+      color: 'gray',
+    });
+    await attachTag({
+      responseId: row.responseId,
+      tagId: tag.id,
+      source: 'ai_auto',
+      teamId: row.teamId,
+    });
+  }
+}
+
+function stringifyValueForAI(blockType: string, value: unknown): string {
+  if (value == null) return '';
+  switch (blockType) {
+    case 'short_text':
+    case 'long_text':
+      return typeof value === 'string' ? value : '';
+    case 'mcq':
+      return Array.isArray(value) ? (value as string[]).join(', ') : '';
+    default:
+      return ''; // only auto-tag textual / categorical responses for now
   }
 }
 

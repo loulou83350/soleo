@@ -329,3 +329,55 @@ export type BlockResponse = typeof blockResponses.$inferSelect;
 export type NewBlockResponse = typeof blockResponses.$inferInsert;
 export type ConsentRecord = typeof consentRecords.$inferSelect;
 export type NewConsentRecord = typeof consentRecords.$inferInsert;
+
+// ─── Insight Tags (Story 5.3) ────────────────────────────────────────────────
+
+export const insightTags = pgTable('insight_tags', {
+  id: serial('id').primaryKey(),
+  teamId: integer('team_id')
+    .notNull()
+    .references(() => teams.id, { onDelete: 'cascade' }),
+  label: varchar('label', { length: 100 }).notNull(),
+  // Token color name from a curated palette: gray, red, orange, yellow,
+  // green, teal, blue, indigo, purple, pink. Mapped to Tailwind classes
+  // in the chip component.
+  color: varchar('color', { length: 20 }).notNull().default('gray'),
+  createdBy: integer('created_by').references(() => users.id),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+});
+
+export const blockResponseTags = pgTable('block_response_tags', {
+  id: serial('id').primaryKey(),
+  responseId: integer('response_id')
+    .notNull()
+    .references(() => blockResponses.id, { onDelete: 'cascade' }),
+  tagId: integer('tag_id')
+    .notNull()
+    .references(() => insightTags.id, { onDelete: 'cascade' }),
+  // 'manual' = researcher attached, 'ai_auto' = added on response save,
+  // 'ai_suggested' = AI suggestion accepted by researcher
+  source: varchar('source', { length: 20 }).notNull().default('manual'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+});
+
+export const insightTagsRelations = relations(insightTags, ({ one, many }) => ({
+  team: one(teams, { fields: [insightTags.teamId], references: [teams.id] }),
+  responseTags: many(blockResponseTags),
+}));
+
+export const blockResponseTagsRelations = relations(blockResponseTags, ({ one }) => ({
+  response: one(blockResponses, {
+    fields: [blockResponseTags.responseId],
+    references: [blockResponses.id],
+  }),
+  tag: one(insightTags, {
+    fields: [blockResponseTags.tagId],
+    references: [insightTags.id],
+  }),
+}));
+
+export type InsightTag = typeof insightTags.$inferSelect;
+export type NewInsightTag = typeof insightTags.$inferInsert;
+export type BlockResponseTag = typeof blockResponseTags.$inferSelect;
+export type NewBlockResponseTag = typeof blockResponseTags.$inferInsert;
+export type TagSource = 'manual' | 'ai_auto' | 'ai_suggested';

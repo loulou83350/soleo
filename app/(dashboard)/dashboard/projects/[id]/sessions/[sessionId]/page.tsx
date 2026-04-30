@@ -9,6 +9,7 @@ import {
   listParticipantsForSession,
   getAllResponsesForSession,
 } from '@/lib/repositories/participant-sessions';
+import { countTagUsageForSession } from '@/lib/repositories/tags';
 import { formatDuration, formatPercent } from '@/lib/utils';
 import { ANCHOR_BLOCK_TYPES } from '@/lib/domain/blocks';
 import { summarizeForBlock } from '@/lib/analytics/summaries';
@@ -16,7 +17,8 @@ import { SessionDashboardHeader } from './SessionDashboardHeader';
 import { MetricCard } from './MetricCard';
 import { ParticipantTable } from './ParticipantTable';
 import { BlockSummaryRenderer } from './BlockSummaryRenderer';
-import type { SessionBlock } from '@/lib/db/schema';
+import { TagChip } from '@/components/insights/TagChip';
+import type { SessionBlock, InsightTag } from '@/lib/db/schema';
 
 interface Props {
   params: Promise<{ id: string; sessionId: string }>;
@@ -40,13 +42,17 @@ export default async function SessionDashboardPage({ params, searchParams }: Pro
   const isSummaryView = view === 'summary';
 
   // Always fetch the cheap stuff. Heavy summary fetch only when needed.
-  const [project, session, stats, participants, allResponses] = await Promise.all([
-    getProjectById(projectId, userWithTeam.teamId),
-    getSessionWithBlocks(sessionId, userWithTeam.teamId),
-    getSessionStats(sessionId),
-    listParticipantsForSession(sessionId),
-    isSummaryView ? getAllResponsesForSession(sessionId) : Promise.resolve([]),
-  ]);
+  const [project, session, stats, participants, allResponses, tagUsageByBlock] =
+    await Promise.all([
+      getProjectById(projectId, userWithTeam.teamId),
+      getSessionWithBlocks(sessionId, userWithTeam.teamId),
+      getSessionStats(sessionId),
+      listParticipantsForSession(sessionId),
+      isSummaryView ? getAllResponsesForSession(sessionId) : Promise.resolve([]),
+      isSummaryView
+        ? countTagUsageForSession(sessionId)
+        : Promise.resolve(new Map<number, Map<number, { tag: InsightTag; count: number }>>()),
+    ]);
 
   if (!project || !session) notFound();
 
@@ -105,7 +111,11 @@ export default async function SessionDashboardPage({ params, searchParams }: Pro
 
         {/* Tab content */}
         {isSummaryView ? (
-          <SummaryView blocks={session.blocks} responses={allResponses} />
+          <SummaryView
+            blocks={session.blocks}
+            responses={allResponses}
+            tagUsageByBlock={tagUsageByBlock}
+          />
         ) : (
           <ParticipantsView
             participants={participants}
@@ -199,9 +209,11 @@ function ParticipantsView({
 function SummaryView({
   blocks,
   responses,
+  tagUsageByBlock,
 }: {
   blocks: SessionBlock[];
   responses: Array<{ blockId: number; value: unknown }>;
+  tagUsageByBlock: Map<number, Map<number, { tag: InsightTag; count: number }>>;
 }) {
   // Group raw values by blockId
   const byBlock = new Map<number, unknown[]>();
@@ -253,6 +265,33 @@ function SummaryView({
               </span>
             </header>
             <BlockSummaryRenderer summary={summary} />
+
+            {/* Tag distribution for this block */}
+            {(() => {
+              const tagsForBlock = tagUsageByBlock.get(block.id);
+              if (!tagsForBlock || tagsForBlock.size === 0) return null;
+              const sorted = Array.from(tagsForBlock.values()).sort(
+                (a, b) => b.count - a.count
+              );
+              return (
+                <div className="pt-3 border-t border-border/60 space-y-2">
+                  <p className="text-xs text-muted-foreground">Tags appliqués</p>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    {sorted.map(({ tag, count }) => (
+                      <span
+                        key={tag.id}
+                        className="inline-flex items-center gap-1.5"
+                      >
+                        <TagChip label={tag.label} color={tag.color} />
+                        <span className="text-xs text-muted-foreground tabular-nums">
+                          ×{count}
+                        </span>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
           </article>
         );
       })}
