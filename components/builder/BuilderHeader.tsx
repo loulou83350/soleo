@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
-import { ChevronLeft, Share2, Check, Loader2, Copy, AlertCircle, X, Eye } from 'lucide-react';
+import { ChevronLeft, Share2, Check, Loader2, Copy, AlertCircle, X, Eye, Settings } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { updateSessionTitleAction, publishSessionAction } from '@/app/(dashboard)/dashboard/projects/[id]/sessions/actions';
@@ -17,7 +17,14 @@ interface BuilderHeaderProps {
   initialTitle: string;
   initialStatus: string;
   initialToken: string | null;
+  initialGate?: {
+    passwordEnabled: boolean;
+    deviceRestriction: 'any' | 'desktop' | 'mobile';
+    gdprEnabled: boolean;
+    gdprMessage: string;
+  };
   onPreview: () => void;
+  onGatePanel?: (open: boolean) => void;
 }
 
 export function BuilderHeader({
@@ -27,6 +34,7 @@ export function BuilderHeader({
   initialStatus,
   initialToken,
   onPreview,
+  onGatePanel,
 }: BuilderHeaderProps) {
   const [title, setTitle] = useState(initialTitle);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle');
@@ -163,6 +171,20 @@ export function BuilderHeader({
           <span className="text-destructive">Erreur</span>
         )}
       </div>
+
+      {/* Gate settings button */}
+      {onGatePanel && (
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => onGatePanel(true)}
+          className="shrink-0 gap-1.5"
+          aria-label="Paramètres de la session"
+          title="Paramètres (mot de passe, appareil, RGPD)"
+        >
+          <Settings className="h-4 w-4" />
+        </Button>
+      )}
 
       {/* Preview button */}
       <Button

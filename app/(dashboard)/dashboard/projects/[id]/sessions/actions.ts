@@ -7,30 +7,32 @@ import {
   createSession,
   createSessionFromTemplate,
   updateSessionTitle,
-  getSessionWithPages,
-  addPage,
-  reorderPages,
-  deletePage,
+  getSessionWithBlocks,
+  reorderBlocks,
   deleteSession,
   publishSession,
+  setSessionGate,
 } from '@/lib/repositories/sessions';
+import type { GateConfig } from '@/lib/repositories/sessions';
 import { TEMPLATE_MAP } from '@/lib/domain/templates';
 import {
   CreateSessionSchema,
   UpdateSessionTitleSchema,
-  AddPageSchema,
-  ReorderPagesSchema,
   AddBlockSchema,
+  ReorderBlocksSchema,
   UpdateBlockSchema,
   DeleteBlockSchema,
   PublishSessionSchema,
-  DeletePageSchema,
   DeleteSessionSchema,
 } from '@/lib/validations/sessions';
 import { addBlock, updateBlock, deleteBlock } from '@/lib/repositories/blocks';
 import { uploadBlockAsset } from '@/lib/supabase/storage';
+import { parseFigmaProtoUrl, fetchFigmaFrames, type FigmaFrame } from '@/lib/figma/api';
+import { db } from '@/lib/db/drizzle';
+import { teams, teamMembers } from '@/lib/db/schema';
+import { eq } from 'drizzle-orm';
 import type { ActionResult, PublishResult, ValidationIssue } from '@/lib/domain/types';
-import type { SessionPage, SessionBlock } from '@/lib/db/schema';
+import type { SessionBlock } from '@/lib/db/schema';
 
 // ─── Create Session ──────────────────────────────────────────────────────────
 
@@ -48,19 +50,15 @@ export async function createSessionAction(formData: FormData): Promise<void> {
   const rawProjectId = formData.get('projectId');
   const projectId = rawProjectId ? parseInt(String(rawProjectId), 10) : NaN;
 
-  // Validate input
   const parsed = CreateSessionSchema.safeParse({ projectId });
   if (!parsed.success) redirect('/dashboard');
 
-  // Verify project belongs to team
   const project = await getProjectById(projectId, userWithTeam.teamId);
   if (!project) redirect('/dashboard');
 
   const session = await createSession(userWithTeam.teamId, projectId);
 
-  redirect(
-    `/dashboard/projects/${projectId}/sessions/${session.id}/builder`
-  );
+  redirect(`/dashboard/projects/${projectId}/sessions/${session.id}/builder`);
 }
 
 /**
@@ -93,10 +91,6 @@ export async function createSessionFromTemplateAction(
 
 // ─── Update Session Title ────────────────────────────────────────────────────
 
-/**
- * Auto-save action for the session title in the builder header.
- * Returns success/error — does NOT redirect.
- */
 export async function updateSessionTitleAction(
   sessionId: number,
   title: string
@@ -112,77 +106,18 @@ export async function updateSessionTitleAction(
     return { success: false, error: parsed.error.errors[0]?.message ?? 'Données invalides' };
   }
 
-  // Verify session belongs to this team (workspace isolation)
-  const session = await getSessionWithPages(sessionId, userWithTeam.teamId);
+  const session = await getSessionWithBlocks(sessionId, userWithTeam.teamId);
   if (!session) return { success: false, error: 'Session introuvable' };
 
   await updateSessionTitle(sessionId, userWithTeam.teamId, parsed.data.title);
-
   return { success: true, data: { title: parsed.data.title } };
-}
-
-// ─── Add Page ────────────────────────────────────────────────────────────────
-
-/**
- * Inserts a new empty question page after `afterPageId`.
- * Returns the updated ordered page list (without blocks).
- */
-export async function addPageAction(
-  sessionId: number,
-  afterPageId: number
-): Promise<ActionResult<{ pages: SessionPage[] }>> {
-  const user = await getUser();
-  if (!user) return { success: false, error: 'Non authentifié' };
-
-  const userWithTeam = await getUserWithTeam(user.id);
-  if (!userWithTeam?.teamId) return { success: false, error: 'Aucune équipe trouvée' };
-
-  const parsed = AddPageSchema.safeParse({ sessionId, afterPageId });
-  if (!parsed.success) {
-    return { success: false, error: parsed.error.errors[0]?.message ?? 'Données invalides' };
-  }
-
-  try {
-    const pages = await addPage(sessionId, userWithTeam.teamId, afterPageId);
-    return { success: true, data: { pages } };
-  } catch {
-    return { success: false, error: 'Impossible d\'ajouter la page' };
-  }
-}
-
-// ─── Reorder Pages ───────────────────────────────────────────────────────────
-
-/**
- * Persists a new page order after drag-and-drop reordering.
- */
-export async function reorderPagesAction(
-  sessionId: number,
-  orderedPageIds: number[]
-): Promise<ActionResult<void>> {
-  const user = await getUser();
-  if (!user) return { success: false, error: 'Non authentifié' };
-
-  const userWithTeam = await getUserWithTeam(user.id);
-  if (!userWithTeam?.teamId) return { success: false, error: 'Aucune équipe trouvée' };
-
-  const parsed = ReorderPagesSchema.safeParse({ sessionId, orderedPageIds });
-  if (!parsed.success) {
-    return { success: false, error: parsed.error.errors[0]?.message ?? 'Données invalides' };
-  }
-
-  try {
-    await reorderPages(sessionId, userWithTeam.teamId, orderedPageIds);
-    return { success: true, data: undefined };
-  } catch {
-    return { success: false, error: 'Impossible de réordonner les pages' };
-  }
 }
 
 // ─── Add Block ───────────────────────────────────────────────────────────────
 
 export async function addBlockAction(
   sessionId: number,
-  pageId: number,
+  afterBlockId: number,
   blockType: string
 ): Promise<ActionResult<{ block: SessionBlock }>> {
   const user = await getUser();
@@ -191,16 +126,41 @@ export async function addBlockAction(
   const userWithTeam = await getUserWithTeam(user.id);
   if (!userWithTeam?.teamId) return { success: false, error: 'Aucune équipe trouvée' };
 
-  const parsed = AddBlockSchema.safeParse({ sessionId, pageId, blockType });
+  const parsed = AddBlockSchema.safeParse({ sessionId, afterBlockId, blockType });
   if (!parsed.success) {
     return { success: false, error: parsed.error.errors[0]?.message ?? 'Type de bloc invalide' };
   }
 
   try {
-    const block = await addBlock(pageId, userWithTeam.teamId, parsed.data.blockType);
+    const block = await addBlock(sessionId, userWithTeam.teamId, afterBlockId, parsed.data.blockType);
     return { success: true, data: { block } };
   } catch {
     return { success: false, error: 'Impossible d\'ajouter le bloc' };
+  }
+}
+
+// ─── Reorder Blocks ──────────────────────────────────────────────────────────
+
+export async function reorderBlocksAction(
+  sessionId: number,
+  orderedBlockIds: number[]
+): Promise<ActionResult<void>> {
+  const user = await getUser();
+  if (!user) return { success: false, error: 'Non authentifié' };
+
+  const userWithTeam = await getUserWithTeam(user.id);
+  if (!userWithTeam?.teamId) return { success: false, error: 'Aucune équipe trouvée' };
+
+  const parsed = ReorderBlocksSchema.safeParse({ sessionId, orderedBlockIds });
+  if (!parsed.success) {
+    return { success: false, error: parsed.error.errors[0]?.message ?? 'Données invalides' };
+  }
+
+  try {
+    await reorderBlocks(sessionId, userWithTeam.teamId, orderedBlockIds);
+    return { success: true, data: undefined };
+  } catch {
+    return { success: false, error: 'Impossible de réordonner les blocs' };
   }
 }
 
@@ -247,15 +207,13 @@ export async function deleteBlockAction(
   if (!userWithTeam?.teamId) return { success: false, error: 'Aucune équipe trouvée' };
 
   const parsed = DeleteBlockSchema.safeParse({ blockId });
-  if (!parsed.success) {
-    return { success: false, error: 'Données invalides' };
-  }
+  if (!parsed.success) return { success: false, error: 'Données invalides' };
 
   try {
     await deleteBlock(blockId, userWithTeam.teamId);
     return { success: true, data: undefined };
-  } catch {
-    return { success: false, error: 'Impossible de supprimer le bloc' };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : 'Impossible de supprimer le bloc' };
   }
 }
 
@@ -274,7 +232,7 @@ export async function uploadBlockImageAction(
   const file = formData.get('file');
   if (!(file instanceof File)) return { success: false, error: 'Fichier manquant' };
 
-  const MAX_SIZE = 5 * 1024 * 1024; // 5 MB
+  const MAX_SIZE = 5 * 1024 * 1024;
   if (file.size > MAX_SIZE) return { success: false, error: 'Fichier trop volumineux (max 5 Mo)' };
 
   const ALLOWED = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
@@ -293,15 +251,6 @@ export async function uploadBlockImageAction(
 
 // ─── Publish Session ─────────────────────────────────────────────────────────
 
-/**
- * Validates all block configurations, then publishes the session and returns
- * the public participant URL.
- *
- * Returns:
- *   { ok: true, token, url }           — success
- *   { ok: false, validationIssues }    — blocks have missing config
- *   { ok: false, error }               — auth / server error
- */
 export async function publishSessionAction(sessionId: number): Promise<PublishResult> {
   const user = await getUser();
   if (!user) return { ok: false, error: 'Non authentifié' };
@@ -317,7 +266,6 @@ export async function publishSessionAction(sessionId: number): Promise<PublishRe
     const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000';
     return { ok: true, token, url: `${baseUrl}/s/${token}` };
   } catch (err) {
-    // Check for validation issues thrown by publishSession
     if (
       err instanceof Error &&
       'validationIssues' in err &&
@@ -330,29 +278,6 @@ export async function publishSessionAction(sessionId: number): Promise<PublishRe
     }
     const msg = err instanceof Error ? err.message : 'Erreur de publication';
     return { ok: false, error: msg };
-  }
-}
-
-// ─── Delete Page ─────────────────────────────────────────────────────────────
-
-export async function deletePageAction(
-  sessionId: number,
-  pageId: number
-): Promise<ActionResult<{ pages: SessionPage[] }>> {
-  const user = await getUser();
-  if (!user) return { success: false, error: 'Non authentifié' };
-
-  const userWithTeam = await getUserWithTeam(user.id);
-  if (!userWithTeam?.teamId) return { success: false, error: 'Aucune équipe trouvée' };
-
-  const parsed = DeletePageSchema.safeParse({ sessionId, pageId });
-  if (!parsed.success) return { success: false, error: 'Données invalides' };
-
-  try {
-    const pages = await deletePage(sessionId, userWithTeam.teamId, pageId);
-    return { success: true, data: { pages } };
-  } catch (err) {
-    return { success: false, error: err instanceof Error ? err.message : 'Erreur' };
   }
 }
 
@@ -375,5 +300,73 @@ export async function deleteSessionAction(
     return { success: true, data: undefined };
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : 'Erreur' };
+  }
+}
+
+// ─── Gate Configuration (Story 3.5) ──────────────────────────────────────────
+
+export async function updateSessionGateAction(
+  sessionId: number,
+  gateConfig: GateConfig
+): Promise<ActionResult<void>> {
+  const user = await getUser();
+  if (!user) return { success: false, error: 'Non authentifié' };
+
+  const userWithTeam = await getUserWithTeam(user.id);
+  if (!userWithTeam?.teamId) return { success: false, error: 'Aucune équipe trouvée' };
+
+  try {
+    await setSessionGate(sessionId, userWithTeam.teamId, gateConfig);
+    return { success: true, data: undefined };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : 'Erreur' };
+  }
+}
+
+// ─── Figma Screen Picker ──────────────────────────────────────────────────────
+
+export async function fetchFigmaFramesAction(
+  prototypeUrl: string
+): Promise<ActionResult<FigmaFrame[]>> {
+  const user = await getUser();
+  if (!user) return { success: false, error: 'Non authentifié' };
+
+  // Resolve Figma token: team token (DB) > env var (dev fallback)
+  let figmaToken: string | null = null;
+
+  const teamMember = await db.query.teamMembers.findFirst({
+    where: eq(teamMembers.userId, user.id),
+    with: { team: true },
+  });
+
+  if (teamMember?.team?.figmaAccessToken) {
+    figmaToken = teamMember.team.figmaAccessToken;
+  } else if (process.env.FIGMA_ACCESS_TOKEN) {
+    figmaToken = process.env.FIGMA_ACCESS_TOKEN;
+  }
+
+  if (!figmaToken) {
+    return {
+      success: false,
+      error:
+        'Figma non connecté. Ajoutez votre token Figma dans Paramètres → Intégrations.',
+    };
+  }
+
+  const parsed = parseFigmaProtoUrl(prototypeUrl);
+  if (!parsed) {
+    return { success: false, error: 'URL Figma invalide. Collez un lien de prototype Figma.' };
+  }
+
+  // Temporarily override env for fetchFigmaFrames (cleaner than threading token everywhere)
+  const prev = process.env.FIGMA_ACCESS_TOKEN;
+  process.env.FIGMA_ACCESS_TOKEN = figmaToken;
+  try {
+    const frames = await fetchFigmaFrames(parsed.fileKey, parsed.pageId);
+    return { success: true, data: frames };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : 'Erreur Figma API' };
+  } finally {
+    process.env.FIGMA_ACCESS_TOKEN = prev;
   }
 }
