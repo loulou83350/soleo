@@ -7,6 +7,22 @@ import { SubmitButton } from './submit-button';
 export const revalidate = 3600;
 
 export default async function PricingPage() {
+  // Billing disabled → don't call Stripe at build/request time. Avoids
+  // crashing the build when STRIPE_SECRET_KEY isn't set on Vercel.
+  if (process.env.BILLING_ENABLED !== 'true') {
+    return (
+      <main className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-24 text-center">
+        <h1 className="text-2xl font-semibold text-foreground mb-3">
+          Facturation bientôt disponible
+        </h1>
+        <p className="text-sm text-muted-foreground">
+          La facturation n&apos;est pas encore activée sur cet environnement.
+          Toutes les fonctionnalités sont accessibles sans paiement.
+        </p>
+      </main>
+    );
+  }
+
   const [prices, products] = await Promise.all([
     getStripePrices(),
     getStripeProducts(),
