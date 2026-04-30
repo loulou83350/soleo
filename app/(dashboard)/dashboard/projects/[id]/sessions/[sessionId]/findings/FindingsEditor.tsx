@@ -74,6 +74,13 @@ export function FindingsEditor({
   // ─── AI generation ────────────────────────────────────────────────────────
 
   async function handleGenerate() {
+    // Confirm before overwriting existing content
+    if (body.trim().length > 0) {
+      const ok = window.confirm(
+        'Remplacer le contenu actuel par un nouveau brouillon généré par l\'IA ?'
+      );
+      if (!ok) return;
+    }
     setGenerating(true);
     setGenError(null);
     const res = await generateFindingDraftAction(
@@ -131,47 +138,54 @@ export function FindingsEditor({
     <div className="space-y-4">
       {/* Toolbar */}
       <div className="flex items-center justify-between gap-3 flex-wrap">
+        {/* Left: save status only */}
+        <span className="text-xs text-muted-foreground tabular-nums">
+          {saveStatus === 'saving' && 'Enregistrement…'}
+          {saveStatus === 'saved' && '✓ Enregistré'}
+          {saveStatus === 'error' && (
+            <span className="text-destructive">Erreur de sauvegarde</span>
+          )}
+          {saveStatus === 'idle' && (
+            <span className="text-muted-foreground/60">Auto-save activé</span>
+          )}
+        </span>
+
         <div className="flex items-center gap-2">
+          {/* AI assist — secondary, ghost button */}
           {availableProviders.length > 0 && (
-            <Button
-              type="button"
-              size="sm"
-              onClick={handleGenerate}
-              disabled={generating}
-              className="bg-foreground text-background hover:opacity-90"
-            >
-              {generating ? (
-                <>
-                  <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
-                  Génération…
-                </>
-              ) : (
-                <>
-                  <Sparkles className="h-3.5 w-3.5 mr-1.5" />
-                  {hasBody ? 'Régénérer le brouillon' : 'Générer un brouillon IA'}
-                </>
+            <>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                onClick={handleGenerate}
+                disabled={generating}
+                className="text-muted-foreground hover:text-foreground"
+              >
+                {generating ? (
+                  <>
+                    <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                    Génération…
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="h-3.5 w-3.5 mr-1.5" />
+                    {hasBody ? 'Régénérer avec l’IA' : 'Suggérer un brouillon IA'}
+                  </>
+                )}
+              </Button>
+              {availableProviders.length > 1 && (
+                <ProviderToggle
+                  value={provider ?? availableProviders[0]}
+                  onChange={setProvider}
+                  options={availableProviders}
+                />
               )}
-            </Button>
-          )}
-          {availableProviders.length > 1 && (
-            <ProviderToggle
-              value={provider ?? availableProviders[0]}
-              onChange={setProvider}
-              options={availableProviders}
-            />
+              <span className="h-5 w-px bg-border mx-1" aria-hidden />
+            </>
           )}
 
-          {/* Save status */}
-          <span className="text-xs text-muted-foreground ml-2 tabular-nums">
-            {saveStatus === 'saving' && 'Enregistrement…'}
-            {saveStatus === 'saved' && '✓ Enregistré'}
-            {saveStatus === 'error' && (
-              <span className="text-destructive">Erreur de sauvegarde</span>
-            )}
-          </span>
-        </div>
 
-        <div className="flex items-center gap-2">
           {isPublished && publicToken && (
             <Button
               type="button"
@@ -253,11 +267,9 @@ export function FindingsEditor({
           <textarea
             value={body}
             onChange={(e) => setBody(e.target.value)}
-            placeholder={
-              availableProviders.length > 0
-                ? 'Cliquez sur « Générer un brouillon IA » pour démarrer, ou écrivez en markdown directement.'
-                : 'Aucun provider IA configuré. Écrivez votre rapport en markdown directement.'
-            }
+            placeholder={`Écrivez votre rapport en markdown.
+
+Utilisez { r:ID } pour citer une réponse ; chaque citation devient une pill cliquable dans l'aperçu.${availableProviders.length > 0 ? '\n\nAstuce : « ✨ Suggérer un brouillon IA » en haut à droite si vous voulez un point de départ.' : ''}`}
             className="w-full h-full min-h-[55vh] resize-none font-mono text-sm bg-transparent border-0 focus:outline-none text-foreground leading-relaxed"
           />
         </div>
