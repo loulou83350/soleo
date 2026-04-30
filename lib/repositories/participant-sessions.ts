@@ -1,4 +1,4 @@
-import { eq, and } from 'drizzle-orm';
+import { eq, and, sql } from 'drizzle-orm';
 import { db } from '@/lib/db/drizzle';
 import { participantSessions, blockResponses } from '@/lib/db/schema';
 import type { ParticipantSession, BlockResponse } from '@/lib/db/schema';
@@ -85,4 +85,23 @@ export async function getBlockResponses(
     .select()
     .from(blockResponses)
     .where(eq(blockResponses.participantSessionId, participantSessionId));
+}
+
+// ─── Counts (Story 4.5) ──────────────────────────────────────────────────────
+
+/**
+ * Returns the number of completed participant sessions for a given session.
+ * Used in completion emails to show "Nth participant has completed".
+ */
+export async function countCompletedParticipants(sessionId: number): Promise<number> {
+  const [row] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(participantSessions)
+    .where(
+      and(
+        eq(participantSessions.sessionId, sessionId),
+        eq(participantSessions.status, 'completed')
+      )
+    );
+  return row?.count ?? 0;
 }

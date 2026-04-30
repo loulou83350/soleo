@@ -1,14 +1,19 @@
 'use server';
 
-import { getSessionByToken } from '@/lib/repositories/sessions';
+import {
+  getSessionByToken,
+  getSessionNotificationContext,
+} from '@/lib/repositories/sessions';
 import {
   startParticipantSession,
   getParticipantSession,
   completeParticipantSession,
   upsertBlockResponse,
+  countCompletedParticipants,
 } from '@/lib/repositories/participant-sessions';
 import { recordConsent } from '@/lib/repositories/consent';
 import { comparePasswords } from '@/lib/auth/session';
+import { sendSessionCompletionEmail } from '@/lib/email/resend';
 import type { SessionWithBlocks } from '@/lib/db/schema';
 import type { ActionResult } from '@/lib/domain/types';
 
@@ -93,10 +98,43 @@ export async function completeSessionAction(
 
   try {
     await completeParticipantSession(participantSession.id);
+
+    // Story 4.5 — fire-and-forget notification email to team owners.
+    // Errors are logged but never block the participant response.
+    notifySessionOwners(participantSession.sessionId).catch((err) => {
+      console.error('[completion-email] notification failed:', err);
+    });
+
     return { success: true, data: undefined };
   } catch {
     return { success: false, error: 'Impossible de compléter la session' };
   }
+}
+
+/**
+ * Looks up the session's owner emails and sends a completion notification
+ * to each. Designed to run after completeParticipantSession() resolves —
+ * the count therefore includes the just-completed participant.
+ */
+async function notifySessionOwners(sessionId: number): Promise<void> {
+  const ctx = await getSessionNotificationContext(sessionId);
+  if (!ctx || ctx.ownerEmails.length === 0) return;
+
+  const participantNumber = await countCompletedParticipants(sessionId);
+
+  // Send in parallel; individual failures don't abort the whole batch.
+  await Promise.allSettled(
+    ctx.ownerEmails.map((email) =>
+      sendSessionCompletionEmail({
+        to: email,
+        sessionTitle: ctx.sessionTitle,
+        projectName: ctx.projectName,
+        projectId: ctx.projectId,
+        sessionId,
+        participantNumber,
+      })
+    )
+  );
 }
 
 // ─── Gate: password check ────────────────────────────────────────────────────

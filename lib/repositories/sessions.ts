@@ -4,6 +4,9 @@ import { db } from '@/lib/db/drizzle';
 import {
   sessions,
   sessionBlocks,
+  projects,
+  teamMembers,
+  users,
   Session,
   SessionBlock,
   SessionWithBlocks,
@@ -315,3 +318,52 @@ export async function setSessionGate(
 // Legacy alias kept for any remaining references (to be removed after full migration)
 /** @deprecated use getSessionWithBlocks */
 export const getSessionWithPages = getSessionWithBlocks;
+
+// ─── Notification helpers (Story 4.5) ────────────────────────────────────────
+
+/**
+ * For a session, return the data needed to send a completion email to
+ * the researcher: session title, project name+id (for dashboard URL),
+ * and the email addresses of the team's owner members.
+ *
+ * Returns null if the session no longer exists.
+ */
+export async function getSessionNotificationContext(
+  sessionId: number
+): Promise<{
+  sessionTitle: string;
+  projectId: number;
+  projectName: string;
+  teamId: number;
+  ownerEmails: string[];
+} | null> {
+  const session = await db.query.sessions.findFirst({
+    where: eq(sessions.id, sessionId),
+  });
+  if (!session) return null;
+
+  const project = await db.query.projects.findFirst({
+    where: eq(projects.id, session.projectId),
+  });
+  if (!project) return null;
+
+  // Owners of the team that owns this session
+  const owners = await db
+    .select({ email: users.email })
+    .from(teamMembers)
+    .innerJoin(users, eq(users.id, teamMembers.userId))
+    .where(
+      and(
+        eq(teamMembers.teamId, session.teamId),
+        eq(teamMembers.role, 'owner')
+      )
+    );
+
+  return {
+    sessionTitle: session.title,
+    projectId: project.id,
+    projectName: project.name,
+    teamId: session.teamId,
+    ownerEmails: owners.map((o) => o.email).filter(Boolean),
+  };
+}
