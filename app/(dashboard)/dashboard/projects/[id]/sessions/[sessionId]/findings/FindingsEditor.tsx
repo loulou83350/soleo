@@ -3,7 +3,6 @@
 import { useState, useTransition, useEffect, useRef } from 'react';
 import { Sparkles, Loader2, Check, Copy, Globe, Lock, ExternalLink, ChevronsUpDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { MarkdownWithCitations } from '@/components/findings/MarkdownWithCitations';
 import type { CitationSource } from '@/components/findings/CitationPill';
 import {
   saveFindingAction,
@@ -17,8 +16,12 @@ import type { AIProvider } from '@/lib/ai/providers';
 
 interface Props {
   finding: SessionFinding;
-  /** Citation sources serialized as [responseId, source][] tuples */
-  sources: Array<[number, CitationSource]>;
+  /**
+   * Citation sources kept on the type for future use (Story 6.4 Notion-style
+   * editor will need them for the inline citation picker). Currently unused
+   * by the textarea editor — the rendering happens on the public viewer.
+   */
+  sources?: Array<[number, CitationSource]>;
   availableProviders: AIProvider[];
   activeProvider: AIProvider | null;
   context: { projectId: number; sessionId: number };
@@ -28,7 +31,6 @@ type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
 
 export function FindingsEditor({
   finding,
-  sources: sourcesEntries,
   availableProviders,
   activeProvider,
   context,
@@ -48,8 +50,6 @@ export function FindingsEditor({
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dirtyRef = useRef(false);
-
-  const sources = new Map(sourcesEntries);
 
   // ─── Auto-save title + body (debounced 1s) ────────────────────────────────
 
@@ -258,37 +258,16 @@ export function FindingsEditor({
         className="w-full text-2xl font-semibold border-0 border-b border-border focus:border-foreground/40 focus:outline-none bg-transparent py-2 transition-colors placeholder:text-muted-foreground/50"
       />
 
-      {/* Split view */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 min-h-[60vh]">
-        <div className="border border-border rounded-lg p-4 bg-muted/20">
-          <p className="text-xs uppercase tracking-wide text-muted-foreground mb-2">
-            Markdown
-          </p>
-          <textarea
-            value={body}
-            onChange={(e) => setBody(e.target.value)}
-            placeholder={`Écrivez votre rapport en markdown.
+      {/* Single-pane editor — preview happens via "Voir public" once published */}
+      <div className="border border-border rounded-lg p-6 min-h-[65vh]">
+        <textarea
+          value={body}
+          onChange={(e) => setBody(e.target.value)}
+          placeholder={`Écrivez votre rapport en markdown.
 
-Utilisez { r:ID } pour citer une réponse ; chaque citation devient une pill cliquable dans l'aperçu.${availableProviders.length > 0 ? '\n\nAstuce : « ✨ Suggérer un brouillon IA » en haut à droite si vous voulez un point de départ.' : ''}`}
-            className="w-full h-full min-h-[55vh] resize-none font-mono text-sm bg-transparent border-0 focus:outline-none text-foreground leading-relaxed"
-          />
-        </div>
-        <div className="border border-border rounded-lg p-6 bg-background overflow-y-auto max-h-[80vh]">
-          <p className="text-xs uppercase tracking-wide text-muted-foreground mb-2">
-            Aperçu
-          </p>
-          {hasBody ? (
-            <MarkdownWithCitations
-              markdown={body}
-              sources={sources}
-              withParticipantLink={true}
-            />
-          ) : (
-            <p className="text-sm text-muted-foreground italic">
-              L&apos;aperçu apparaîtra ici dès que vous aurez du contenu.
-            </p>
-          )}
-        </div>
+Utilisez { r:ID } pour citer une réponse ; chaque citation devient une pill cliquable dans la version publique.${availableProviders.length > 0 ? '\n\nAstuce : « ✨ Suggérer un brouillon IA » en haut à droite si vous voulez un point de départ.' : ''}`}
+          className="w-full h-full min-h-[60vh] resize-none font-mono text-sm bg-transparent border-0 focus:outline-none text-foreground leading-relaxed"
+        />
       </div>
 
       <p className="text-xs text-muted-foreground">
@@ -297,7 +276,20 @@ Utilisez { r:ID } pour citer une réponse ; chaque citation devient une pill cli
           {'{r:ID}'}
         </code>{' '}
         — où ID est l&apos;identifiant d&apos;une réponse. Les IDs invalides
-        sont supprimés automatiquement.
+        sont supprimés automatiquement à la publication. Cliquez{' '}
+        {isPublished && publicToken ? (
+          <a
+            href={`/findings/${publicToken}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="underline hover:text-foreground"
+          >
+            « Voir public »
+          </a>
+        ) : (
+          'sur « Publier »'
+        )}{' '}
+        pour visualiser le rendu final avec citations cliquables.
       </p>
     </div>
   );
