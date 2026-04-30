@@ -9,6 +9,7 @@
 //   Google:    https://ai.google.dev/pricing
 //   OpenAI:    https://openai.com/api/pricing/
 
+import 'server-only';
 import { db } from '@/lib/db/drizzle';
 import { aiUsageLogs } from '@/lib/db/schema';
 import type { AIProvider } from './providers';
@@ -51,9 +52,7 @@ export function computeCostMicros(
   return Math.round(inputTokens * p.input + outputTokens * p.output);
 }
 
-export function formatUsd(micros: number): string {
-  return `$${(micros / 1_000_000).toFixed(4)}`;
-}
+// formatUsd lives in lib/ai/format.ts (client-safe, no DB imports)
 
 interface LogParams {
   teamId: number | null;

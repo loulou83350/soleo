@@ -4,7 +4,14 @@ import { useActionState, useEffect, useState } from 'react';
 import posthog from 'posthog-js';
 import { getCurrentMonthUsageAction } from './usage-actions';
 import type { UsageSummary } from '@/lib/repositories/ai-usage';
-import { formatUsd } from '@/lib/ai/usage';
+import { formatUsd } from '@/lib/ai/format';
+
+/**
+ * Feature flag — off by default. Logging continues to run server-side,
+ * but the in-app dashboard card is hidden. Flip to `true` (env var
+ * `NEXT_PUBLIC_SHOW_AI_USAGE_UI=true`) when we're ready to expose it.
+ */
+const SHOW_AI_USAGE_UI = process.env.NEXT_PUBLIC_SHOW_AI_USAGE_UI === 'true';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -499,8 +506,9 @@ export default function GeneralPage() {
         {/* Figma integration */}
         <FigmaIntegrationCard />
 
-        {/* AI usage (this month) */}
-        <AIUsageCard />
+        {/* AI usage (this month) — hidden by default, enable with
+            NEXT_PUBLIC_SHOW_AI_USAGE_UI=true once we're ready to expose it */}
+        {SHOW_AI_USAGE_UI && <AIUsageCard />}
 
         {/* Privacy / analytics opt-out */}
         <PrivacyCard />
