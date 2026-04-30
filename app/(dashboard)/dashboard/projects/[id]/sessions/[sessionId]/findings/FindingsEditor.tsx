@@ -262,6 +262,7 @@ export function FindingsEditor({
         <RichEditor
           initialMarkdown={body}
           sources={sources}
+          sessionId={context.sessionId}
           onChange={(md) => setBody(md)}
           placeholder={
             availableProviders.length > 0

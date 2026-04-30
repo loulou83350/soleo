@@ -4,7 +4,15 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { useEditor, EditorContent, ReactRenderer } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
+import { Image } from '@tiptap/extension-image';
+import { Table } from '@tiptap/extension-table';
+import { TableRow } from '@tiptap/extension-table-row';
+import { TableHeader } from '@tiptap/extension-table-header';
+import { TableCell } from '@tiptap/extension-table-cell';
 import { CitationNode } from './extensions/CitationNode';
+import { InsightCallout } from './extensions/InsightCallout';
+import { StatHighlight } from './extensions/StatHighlight';
+import { uploadFindingImageAction } from '@/app/(dashboard)/dashboard/projects/[id]/sessions/[sessionId]/findings/actions';
 import {
   SlashCommand,
   getDefaultCommands,
@@ -25,11 +33,23 @@ interface Props {
   /** Called whenever the editor content changes (debounced upstream). */
   onChange: (markdown: string) => void;
   placeholder?: string;
+  /** Session id for image uploads (scopes the asset path) */
+  sessionId: number;
 }
 
-export function Editor({ initialMarkdown, sources, onChange, placeholder }: Props) {
+export function Editor({
+  initialMarkdown,
+  sources,
+  onChange,
+  placeholder,
+  sessionId,
+}: Props) {
   const [pickerOpen, setPickerOpen] = useState(false);
-  const editorRef = useRef<{ insertCitation?: (id: number) => void }>({});
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const editorRef = useRef<{
+    insertCitation?: (id: number) => void;
+    insertImage?: (url: string) => void;
+  }>({});
 
   // Expose sources to the citation node renderer via window registry
   useEffect(() => {
@@ -41,6 +61,25 @@ export function Editor({ initialMarkdown, sources, onChange, placeholder }: Prop
   }, [sources]);
 
   const openCitationPicker = useCallback(() => setPickerOpen(true), []);
+
+  const openImagePicker = useCallback(() => {
+    fileInputRef.current?.click();
+  }, []);
+
+  async function handleFileSelected(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = ''; // reset so the same file can be re-selected later
+
+    const fd = new FormData();
+    fd.append('file', file);
+    const res = await uploadFindingImageAction(sessionId, fd);
+    if (res.success && res.data) {
+      editorRef.current.insertImage?.(res.data.url);
+    } else {
+      alert(res.success ? 'Erreur upload' : (res.error ?? 'Erreur upload'));
+    }
+  }
 
   const editor = useEditor({
     immediatelyRender: false,
@@ -54,12 +93,25 @@ export function Editor({ initialMarkdown, sources, onChange, placeholder }: Prop
           placeholder ??
           'Tapez "/" pour ouvrir le menu de commandes, ou écrivez librement…',
       }),
+      Image.configure({ inline: false, allowBase64: false }),
+      Table.configure({
+        resizable: true,
+        HTMLAttributes: { class: 'tiptap-table' },
+      }),
+      TableRow,
+      TableHeader,
+      TableCell,
       CitationNode,
+      InsightCallout,
+      StatHighlight,
       SlashCommand.configure({
         suggestion: {
           items: ({ query }) =>
             filterCommands(
-              getDefaultCommands({ onOpenCitationPicker: openCitationPicker }),
+              getDefaultCommands({
+                onOpenCitationPicker: openCitationPicker,
+                onOpenImagePicker: openImagePicker,
+              }),
               query
             ),
           render: () => {
@@ -124,6 +176,9 @@ export function Editor({ initialMarkdown, sources, onChange, placeholder }: Prop
     editorRef.current.insertCitation = (responseId: number) => {
       editor?.chain().focus().insertCitation(responseId).run();
     };
+    editorRef.current.insertImage = (url: string) => {
+      editor?.chain().focus().setImage({ src: url }).run();
+    };
   }, [editor]);
 
   return (
@@ -138,6 +193,14 @@ export function Editor({ initialMarkdown, sources, onChange, placeholder }: Prop
           setPickerOpen(false);
         }}
         onClose={() => setPickerOpen(false)}
+      />
+      {/* Hidden file input for image upload */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/jpeg,image/png,image/webp,image/gif"
+        className="hidden"
+        onChange={handleFileSelected}
       />
     </>
   );

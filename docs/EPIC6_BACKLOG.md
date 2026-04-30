@@ -5,8 +5,8 @@
 | 6.1   | AI-assisted findings with sourced citations (markdown editor) | ✅ Done | feat 6.1 |
 | 6.2   | Pin / highlight quotes manually                    | ✅ Done      | feat 6.2   |
 | 6.3   | Upgrade prompt at scroll depth                     | ✅ Done      | feat 6.3   |
-| 6.4   | Notion-style block editor with slash commands      | ✅ Done (V1) | feat 6.4   |
-| 6.4.1 | Tables, images, custom blocks (Insight, Metric)    | À faire      | —          |
+| 6.4   | Notion-style block editor with slash commands      | ✅ Done       | feat 6.4   |
+| 6.4.1 | Tables, images, custom blocks (Insight, Stat)      | ✅ Done       | feat 6.4.1 |
 
 ---
 

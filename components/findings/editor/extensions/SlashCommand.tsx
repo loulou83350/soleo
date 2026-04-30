@@ -56,8 +56,10 @@ export const SlashCommand = Extension.create<SlashCommandOptions>({
 
 export function getDefaultCommands({
   onOpenCitationPicker,
+  onOpenImagePicker,
 }: {
   onOpenCitationPicker: () => void;
+  onOpenImagePicker: () => void;
 }): SlashCommandItem[] {
   return [
     {
@@ -151,6 +153,32 @@ export function getDefaultCommands({
       },
     },
     {
+      id: 'table',
+      section: 'Médias',
+      title: 'Tableau',
+      description: 'Insère un tableau 3×3',
+      aliases: ['table', 'tableau', 'grid'],
+      command: ({ editor, range }) => {
+        editor
+          .chain()
+          .focus()
+          .deleteRange(range)
+          .insertTable({ rows: 3, cols: 3, withHeaderRow: true })
+          .run();
+      },
+    },
+    {
+      id: 'image',
+      section: 'Médias',
+      title: 'Image',
+      description: 'Téléverser une image (JPEG / PNG / WebP, max 5 Mo)',
+      aliases: ['image', 'img', 'photo', 'upload'],
+      command: ({ editor, range }) => {
+        editor.chain().focus().deleteRange(range).run();
+        onOpenImagePicker();
+      },
+    },
+    {
       id: 'citation',
       section: 'Soleo',
       title: 'Citer une réponse',
@@ -159,6 +187,26 @@ export function getDefaultCommands({
       command: ({ editor, range }) => {
         editor.chain().focus().deleteRange(range).run();
         onOpenCitationPicker();
+      },
+    },
+    {
+      id: 'insight',
+      section: 'Soleo',
+      title: 'Constat clé',
+      description: 'Encart visuel pour mettre en avant un insight',
+      aliases: ['insight', 'callout', 'constat', 'finding'],
+      command: ({ editor, range }) => {
+        editor.chain().focus().deleteRange(range).insertInsightCallout().run();
+      },
+    },
+    {
+      id: 'stat',
+      section: 'Soleo',
+      title: 'Stat marquante',
+      description: 'Bloc visuel pour un chiffre fort (NPS, taux, etc.)',
+      aliases: ['stat', 'metric', 'kpi', 'chiffre'],
+      command: ({ editor, range }) => {
+        editor.chain().focus().deleteRange(range).insertStatHighlight().run();
       },
     },
   ];

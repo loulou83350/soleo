@@ -8,6 +8,7 @@ import {
   publishFinding,
   unpublishFinding,
 } from '@/lib/repositories/findings';
+import { uploadBlockAsset } from '@/lib/supabase/storage';
 import { getSessionWithBlocks } from '@/lib/repositories/sessions';
 import {
   getAllResponsesForSession,
@@ -260,4 +261,42 @@ export async function revalidateFindingPath(
   sessionId: number
 ): Promise<void> {
   revalidatePath(`/dashboard/projects/${projectId}/sessions/${sessionId}/findings`);
+}
+
+// ─── Image upload (Story 6.4 V2) ─────────────────────────────────────────────
+
+/**
+ * Uploads an image file to Supabase Storage and returns its public URL,
+ * used by the editor to insert images into findings reports. Reuses the
+ * existing block-assets bucket (Story 2.3) — no new infra needed.
+ */
+export async function uploadFindingImageAction(
+  sessionId: number,
+  formData: FormData
+): Promise<ActionResult<{ url: string }>> {
+  const user = await getUser();
+  if (!user) return { success: false, error: 'Non authentifié' };
+  const userWithTeam = await getUserWithTeam(user.id);
+  if (!userWithTeam?.teamId) return { success: false, error: 'Aucune équipe' };
+
+  const file = formData.get('file');
+  if (!(file instanceof File)) return { success: false, error: 'Fichier manquant' };
+
+  const MAX_SIZE = 5 * 1024 * 1024;
+  if (file.size > MAX_SIZE) return { success: false, error: 'Fichier trop volumineux (max 5 Mo)' };
+
+  const ALLOWED = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+  if (!ALLOWED.includes(file.type)) {
+    return { success: false, error: 'Format non supporté (JPEG, PNG, WebP, GIF)' };
+  }
+
+  try {
+    const url = await uploadBlockAsset(file, userWithTeam.teamId, sessionId);
+    return { success: true, data: { url } };
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : 'Erreur upload',
+    };
+  }
 }

@@ -1,7 +1,9 @@
 'use client';
 
 import ReactMarkdown from 'react-markdown';
+import rehypeRaw from 'rehype-raw';
 import { Fragment, type ReactNode } from 'react';
+import { Lightbulb, TrendingUp } from 'lucide-react';
 import { CitationPill, type CitationSource } from './CitationPill';
 
 interface Props {
@@ -78,8 +80,9 @@ export function MarkdownWithCitations({
   withParticipantLink = true,
 }: Props) {
   return (
-    <div className="prose prose-sm md:prose-base max-w-none prose-headings:font-semibold prose-h1:text-2xl prose-h2:text-xl prose-h2:mt-8 prose-h3:text-base prose-h3:mt-6 prose-p:leading-relaxed">
+    <div className="prose prose-sm md:prose-base max-w-none prose-headings:font-semibold prose-h1:text-2xl prose-h2:text-xl prose-h2:mt-8 prose-h3:text-base prose-h3:mt-6 prose-p:leading-relaxed prose-img:rounded-lg prose-img:border prose-img:border-border">
       <ReactMarkdown
+        rehypePlugins={[rehypeRaw]}
         components={{
           p: ({ children }) => (
             <p>{transformChildren(children, sources, withParticipantLink)}</p>
@@ -95,6 +98,34 @@ export function MarkdownWithCitations({
           em: ({ children }) => (
             <em>{transformChildren(children, sources, withParticipantLink)}</em>
           ),
+          // Custom Soleo blocks rendered from raw HTML (rehype-raw)
+          aside: ({ node, children, ...props }) => {
+            const isInsight =
+              (props as { 'data-block'?: string })['data-block'] === 'insight';
+            if (!isInsight) return <aside {...props}>{children}</aside>;
+            return (
+              <aside className="not-prose my-4 flex items-start gap-3 rounded-lg border border-yellow-300/60 bg-yellow-50/40 px-4 py-3">
+                <Lightbulb className="h-4 w-4 text-yellow-700 shrink-0 mt-1" aria-hidden />
+                <div className="flex-1 text-foreground leading-relaxed">
+                  {transformChildren(children, sources, withParticipantLink)}
+                </div>
+              </aside>
+            );
+          },
+          div: ({ node, children, ...props }) => {
+            const dataBlock = (props as { 'data-block'?: string })['data-block'];
+            if (dataBlock === 'stat') {
+              return (
+                <div className="not-prose my-4 flex items-center gap-3 rounded-lg border border-foreground/15 bg-foreground/[0.04] px-4 py-3">
+                  <TrendingUp className="h-4 w-4 text-foreground/70 shrink-0" aria-hidden />
+                  <div className="flex-1 text-lg font-semibold text-foreground tabular-nums">
+                    {transformChildren(children, sources, withParticipantLink)}
+                  </div>
+                </div>
+              );
+            }
+            return <div {...props}>{children}</div>;
+          },
         }}
       >
         {markdown || ''}
