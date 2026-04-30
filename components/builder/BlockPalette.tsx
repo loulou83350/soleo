@@ -20,18 +20,22 @@ import { BLOCK_LABELS, BLOCK_PALETTE_ORDER } from '@/lib/domain/blocks';
 
 // ─── Icons per block type ─────────────────────────────────────────────────────
 
+// welcome + thank_you are never shown in palette (BLOCK_PALETTE_ORDER excludes them)
+// but the Record<BlockType,...> type requires all keys — use AlignLeft as fallback
 const BLOCK_ICONS: Record<BlockType, React.ComponentType<{ className?: string }>> = {
-  content: Type,
-  short_text: AlignLeft,
-  long_text: AlignJustify,
-  mcq: CheckSquare,
-  likert: BarChart2,
-  rating: Star,
-  nps: Gauge,
-  card_sort: LayoutGrid,
-  matrix: Table2,
+  welcome:          AlignLeft, // not in palette
+  thank_you:        AlignLeft, // not in palette
+  content:          Type,
+  short_text:       AlignLeft,
+  long_text:        AlignJustify,
+  mcq:              CheckSquare,
+  likert:           BarChart2,
+  rating:           Star,
+  nps:              Gauge,
+  card_sort:        LayoutGrid,
+  matrix:           Table2,
   first_impression: Eye,
-  prototype_task: Play,
+  prototype_task:   Play,
 };
 
 // ─── BlockPalette ─────────────────────────────────────────────────────────────

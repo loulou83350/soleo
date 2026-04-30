@@ -3,7 +3,7 @@ export const dynamic = 'force-dynamic';
 import { notFound } from 'next/navigation';
 import { getUser, getUserWithTeam } from '@/lib/db/queries';
 import { getProjectById } from '@/lib/repositories/projects';
-import { getSessionWithPages } from '@/lib/repositories/sessions';
+import { getSessionWithBlocks } from '@/lib/repositories/sessions';
 import { BuilderClient } from '@/components/builder/BuilderClient';
 
 interface Props {
@@ -28,7 +28,7 @@ export default async function BuilderPage({ params }: Props) {
   if (!project) notFound();
 
   // Load session with all pages and blocks
-  const session = await getSessionWithPages(sessionId, userWithTeam.teamId);
+  const session = await getSessionWithBlocks(sessionId, userWithTeam.teamId);
   if (!session) notFound();
 
   return <BuilderClient session={session} projectId={projectId} />;

@@ -2,6 +2,17 @@ import type { BlockType, BlockConfig } from '@/lib/db/schema';
 
 // ─── Per-type config shapes ──────────────────────────────────────────────────
 
+export type WelcomeConfig = {
+  title: string;
+  description: string;
+  buttonText: string;
+};
+
+export type ThankYouConfig = {
+  title: string;
+  description: string;
+};
+
 export type ContentConfig = {
   title: string;
   body: string;
@@ -70,11 +81,25 @@ export type FirstImpressionConfig = {
 export type PrototypeTaskConfig = {
   url: string;
   instructions: string;
+  taskType?: 'goal' | 'explore';
+  goalFrameUrl?: string;
+  goalNodeId?: string; // parsed node ID (set by screen picker)
 };
 
 // ─── Default configs ─────────────────────────────────────────────────────────
 
 export const BLOCK_DEFAULTS: Record<BlockType, BlockConfig> = {
+  welcome: {
+    title: '',
+    description: '',
+    buttonText: 'Commencer',
+  } satisfies WelcomeConfig,
+
+  thank_you: {
+    title: 'Merci !',
+    description: 'Vous avez complété la session.',
+  } satisfies ThankYouConfig,
+
   content: {
     title: '',
     body: '',
@@ -138,12 +163,15 @@ export const BLOCK_DEFAULTS: Record<BlockType, BlockConfig> = {
   prototype_task: {
     url: '',
     instructions: '',
+    taskType: 'explore',
   } satisfies PrototypeTaskConfig,
 };
 
 // ─── UI labels ───────────────────────────────────────────────────────────────
 
 export const BLOCK_LABELS: Record<BlockType, string> = {
+  welcome: 'Écran d\'accueil',
+  thank_you: 'Écran de fin',
   content: 'Texte / Titre',
   short_text: 'Question courte',
   long_text: 'Question longue',
@@ -157,8 +185,9 @@ export const BLOCK_LABELS: Record<BlockType, string> = {
   prototype_task: 'Tâche prototype',
 };
 
-// Ordered for BlockPalette display (prototype_task last / disabled)
-export const BLOCK_PALETTE_ORDER: BlockType[] = [
+// Ordered for BlockPalette display
+// welcome and thank_you are NOT in the palette (created automatically)
+export const BLOCK_PALETTE_ORDER: Exclude<BlockType, 'welcome' | 'thank_you'>[] = [
   'content',
   'short_text',
   'long_text',
@@ -171,3 +200,6 @@ export const BLOCK_PALETTE_ORDER: BlockType[] = [
   'first_impression',
   'prototype_task',
 ];
+
+// Special block types that are anchored (non-deletable, non-draggable)
+export const ANCHOR_BLOCK_TYPES: BlockType[] = ['welcome', 'thank_you'];

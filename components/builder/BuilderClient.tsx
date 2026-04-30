@@ -2,114 +2,91 @@
 
 import { useState, useCallback } from 'react';
 import { BuilderHeader } from './BuilderHeader';
-import { PageList } from './PageList';
+import { StepList } from './StepList';
 import { Canvas } from './Canvas';
 import { ConfigPanel } from './ConfigPanel';
+import { GatePanel } from './GatePanel';
 import { PreviewModal } from './PreviewModal';
-import type { SessionWithPages, SessionPageWithBlocks, SessionPage, SessionBlock } from '@/lib/db/schema';
+import type { SessionWithBlocks, SessionBlock } from '@/lib/db/schema';
+import { ANCHOR_BLOCK_TYPES } from '@/lib/domain/blocks';
+import type { BlockType } from '@/lib/db/schema';
 
 interface BuilderClientProps {
-  session: SessionWithPages;
+  session: SessionWithBlocks;
   projectId: number;
 }
 
 export function BuilderClient({ session, projectId }: BuilderClientProps) {
-  // Pages live in state so we can update them after add/reorder/block changes
-  const [pages, setPages] = useState<SessionPageWithBlocks[]>(session.pages);
+  // Flat blocks list — source of truth for all UI
+  const [blocks, setBlocks] = useState<SessionBlock[]>(session.blocks);
 
-  const firstPage = pages[0] ?? null;
-  const [activePageId, setActivePageId] = useState<number | null>(firstPage?.id ?? null);
-  const [selectedBlockId, setSelectedBlockId] = useState<number | null>(null);
+  // Active block = the one shown in canvas + config panel
+  const [activeBlockId, setActiveBlockId] = useState<number | null>(
+    session.blocks[0]?.id ?? null
+  );
+
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [gatePanelOpen, setGatePanelOpen] = useState(false);
 
-  const activePage = pages.find((p) => p.id === activePageId) ?? null;
+  const activeBlock = blocks.find((b) => b.id === activeBlockId) ?? null;
 
   /**
-   * Blocs précédant le bloc sélectionné — utilisés comme sources de conditions.
-   * = tous les blocs des pages question avant la page active
-   *   + les blocs avant le bloc sélectionné sur la même page.
-   * Les blocs de type 'content' sont exclus (pas de réponse attendue).
+   * Blocs précédant le bloc actif (pour le sélecteur de conditions logiques).
+   * = tous les blocs non-anchor, non-content situés avant activeBlockId.
    */
   const precedingBlocks = (() => {
-    if (!activePage || !selectedBlockId) return [];
+    if (!activeBlockId) return [];
     const result: SessionBlock[] = [];
-    for (const page of pages) {
-      if (page.pageType !== 'question') continue;
-      if (page.id === activePage.id) {
-        // même page — blocs avant le bloc sélectionné
-        for (const b of page.blocks) {
-          if (b.id === selectedBlockId) break;
-          if (b.blockType !== 'content') result.push(b);
-        }
-        break;
-      }
-      // pages précédentes
-      for (const b of page.blocks) {
-        if (b.blockType !== 'content') result.push(b);
+    for (const b of blocks) {
+      if (b.id === activeBlockId) break;
+      if (
+        !ANCHOR_BLOCK_TYPES.includes(b.blockType as BlockType) &&
+        b.blockType !== 'content'
+      ) {
+        result.push(b);
       }
     }
     return result;
   })();
 
-  // ─── Page callbacks ────────────────────────────────────────────────────────
-
-  function handleSelectPage(pageId: number) {
-    setActivePageId(pageId);
-    setSelectedBlockId(null);
-  }
-
-  const handlePagesUpdated = useCallback((newPages: SessionPage[]) => {
-    setPages((prev) => {
-      const blocksByPageId = new Map(prev.map((p) => [p.id, p.blocks]));
-      return newPages.map((p) => ({
-        ...p,
-        blocks: blocksByPageId.get(p.id) ?? [],
-      }));
-    });
-    setActivePageId((prev) => {
-      const stillExists = newPages.some((p) => p.id === prev);
-      return stillExists ? prev : (newPages[0]?.id ?? null);
-    });
-  }, []);
-
-  const handlePageAdded = useCallback((newPageId: number) => {
-    setActivePageId(newPageId);
-    setSelectedBlockId(null);
-  }, []);
-
   // ─── Block callbacks ───────────────────────────────────────────────────────
 
-  const handleBlockAdded = useCallback((pageId: number, block: SessionBlock) => {
-    setPages((prev) =>
-      prev.map((p) =>
-        p.id === pageId ? { ...p, blocks: [...p.blocks, block] } : p
-      )
-    );
+  /** Called by StepList after drag-and-drop reorder */
+  const handleBlocksReordered = useCallback((newBlocks: SessionBlock[]) => {
+    setBlocks(newBlocks);
   }, []);
 
+  /** Called by StepList after a new block is inserted */
+  const handleBlockAdded = useCallback((block: SessionBlock) => {
+    setBlocks((prev) => {
+      // Insert before thank_you (last block)
+      const lastIdx = prev.length - 1;
+      const copy = [...prev];
+      copy.splice(lastIdx, 0, block);
+      return copy;
+    });
+  }, []);
+
+  /** Called by StepList after a block is deleted */
+  const handleBlockDeleted = useCallback((blockId: number) => {
+    setBlocks((prev) => prev.filter((b) => b.id !== blockId));
+    setActiveBlockId((prev) => {
+      if (prev !== blockId) return prev;
+      // Fall back to first block
+      const remaining = blocks.filter((b) => b.id !== blockId);
+      return remaining[0]?.id ?? null;
+    });
+  }, [blocks]);
+
+  /** Called by ConfigPanel on auto-save — updates local state for live preview */
   const handleBlockUpdated = useCallback(
     (blockId: number, updates: { config?: Record<string, unknown>; required?: boolean; conditions?: import('@/lib/domain/types').BlockVisibilityRule }) => {
-      setPages((prev) =>
-        prev.map((p) => ({
-          ...p,
-          blocks: p.blocks.map((b) =>
-            b.id === blockId ? { ...b, ...updates } : b
-          ),
-        }))
+      setBlocks((prev) =>
+        prev.map((b) => (b.id === blockId ? { ...b, ...updates } : b))
       );
     },
     []
   );
-
-  const handleBlockDeleted = useCallback((blockId: number) => {
-    setPages((prev) =>
-      prev.map((p) => ({
-        ...p,
-        blocks: p.blocks.filter((b) => b.id !== blockId),
-      }))
-    );
-    setSelectedBlockId((prev) => (prev === blockId ? null : prev));
-  }, []);
 
   return (
     <div
@@ -124,28 +101,32 @@ export function BuilderClient({ session, projectId }: BuilderClientProps) {
         initialStatus={session.status}
         initialToken={session.sessionToken ?? null}
         onPreview={() => setPreviewOpen(true)}
+        onGatePanel={setGatePanelOpen}
       />
 
       {/* Three-panel body */}
       <div className="flex flex-1 overflow-hidden">
-        <PageList
+        {/* Left: step list */}
+        <StepList
           sessionId={session.id}
-          pages={pages}
-          activePageId={activePageId}
-          onSelectPage={handleSelectPage}
-          onPagesUpdated={handlePagesUpdated}
-          onPageAdded={handlePageAdded}
-        />
-        <Canvas
-          sessionId={session.id}
-          page={activePage}
-          selectedBlockId={selectedBlockId}
-          onSelectBlock={setSelectedBlockId}
+          blocks={blocks}
+          activeBlockId={activeBlockId}
+          onSelectBlock={setActiveBlockId}
+          onBlocksUpdated={handleBlocksReordered}
           onBlockAdded={handleBlockAdded}
+          onBlockDeleted={handleBlockDeleted}
         />
+
+        {/* Centre: single-block canvas */}
+        <Canvas
+          block={activeBlock}
+          onSelectBlock={setActiveBlockId}
+        />
+
+        {/* Right: config panel */}
         <ConfigPanel
-          page={activePage}
-          selectedBlockId={selectedBlockId}
+          blocks={blocks}
+          selectedBlockId={activeBlockId}
           sessionId={session.id}
           precedingBlocks={precedingBlocks}
           onBlockDeleted={handleBlockDeleted}
@@ -153,9 +134,25 @@ export function BuilderClient({ session, projectId }: BuilderClientProps) {
         />
       </div>
 
+      {/* Gate settings panel — slides over right panel */}
+      {gatePanelOpen && (
+        <div className="fixed inset-y-0 right-0 z-50 w-80 bg-surface border-l border-border shadow-xl flex flex-col">
+          <GatePanel
+            sessionId={session.id}
+            initial={{
+              passwordEnabled: !!session.passwordHash,
+              deviceRestriction: (session.deviceRestriction as 'any' | 'desktop' | 'mobile') ?? 'any',
+              gdprEnabled: session.gdprEnabled ?? false,
+              gdprMessage: session.gdprMessage ?? '',
+            }}
+            onClose={() => setGatePanelOpen(false)}
+          />
+        </div>
+      )}
+
       {previewOpen && (
         <PreviewModal
-          session={{ ...session, pages }}
+          session={{ ...session, blocks }}
           onClose={() => setPreviewOpen(false)}
         />
       )}

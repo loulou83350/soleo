@@ -13,25 +13,28 @@ export const UpdateSessionTitleSchema = z.object({
     .trim(),
 });
 
-export const AddPageSchema = z.object({
-  sessionId: z.number().int().positive(),
-  afterPageId: z.number().int().positive(),
-});
+// Block types that can be added via the palette (excludes anchor types)
+const PALETTE_BLOCK_TYPES = [
+  'content', 'short_text', 'long_text', 'mcq', 'likert', 'rating',
+  'nps', 'card_sort', 'matrix', 'first_impression', 'prototype_task',
+] as const;
 
-export const ReorderPagesSchema = z.object({
-  sessionId: z.number().int().positive(),
-  orderedPageIds: z.array(z.number().int().positive()).min(1),
-});
-
-const BLOCK_TYPES = [
+// All block types (for update/delete operations)
+const ALL_BLOCK_TYPES = [
+  'welcome', 'thank_you',
   'content', 'short_text', 'long_text', 'mcq', 'likert', 'rating',
   'nps', 'card_sort', 'matrix', 'first_impression', 'prototype_task',
 ] as const;
 
 export const AddBlockSchema = z.object({
   sessionId: z.number().int().positive(),
-  pageId: z.number().int().positive(),
-  blockType: z.enum(BLOCK_TYPES),
+  afterBlockId: z.number().int().positive(),
+  blockType: z.enum(PALETTE_BLOCK_TYPES),
+});
+
+export const ReorderBlocksSchema = z.object({
+  sessionId: z.number().int().positive(),
+  orderedBlockIds: z.array(z.number().int().positive()).min(1),
 });
 
 export const UpdateBlockSchema = z.object({
@@ -52,11 +55,9 @@ export const PublishSessionSchema = z.object({
   sessionId: z.number().int().positive(),
 });
 
-export const DeletePageSchema = z.object({
-  sessionId: z.number().int().positive(),
-  pageId: z.number().int().positive(),
-});
-
 export const DeleteSessionSchema = z.object({
   sessionId: z.number().int().positive(),
 });
+
+// Re-export for any consumers that reference block type arrays
+export { PALETTE_BLOCK_TYPES, ALL_BLOCK_TYPES };

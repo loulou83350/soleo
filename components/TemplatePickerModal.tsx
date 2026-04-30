@@ -156,10 +156,10 @@ export function TemplatePickerModal({ projectId, onClose }: TemplatePickerModalP
                       ~{template.estimatedMinutes} min
                     </span>
                     <span>
-                      {template.pages.filter((p) => p.pageType === 'question').length} page{template.pages.filter((p) => p.pageType === 'question').length > 1 ? 's' : ''}
+                      {template.blocks.filter((b) => b.blockType !== 'welcome' && b.blockType !== 'thank_you').length} étape{template.blocks.filter((b) => b.blockType !== 'welcome' && b.blockType !== 'thank_you').length > 1 ? 's' : ''}
                     </span>
                     <span>
-                      {template.pages.reduce((sum, p) => sum + p.blocks.length, 0)} blocs
+                      {template.blocks.length} blocs
                     </span>
                   </div>
                 </div>

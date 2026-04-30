@@ -31,6 +31,9 @@ export const teams = pgTable('teams', {
   stripeProductId: text('stripe_product_id'),
   planName: varchar('plan_name', { length: 50 }),
   subscriptionStatus: varchar('subscription_status', { length: 20 }),
+  figmaAccessToken: text('figma_access_token'),
+  figmaRefreshToken: text('figma_refresh_token'),
+  figmaTokenExpiresAt: timestamp('figma_token_expires_at'),
 });
 
 export const teamMembers = pgTable('team_members', {
@@ -179,34 +182,30 @@ export const sessions = pgTable('sessions', {
   status: varchar('status', { length: 20 }).notNull().default('draft'),
   // CUID2 token for the public participant URL (/s/[token]) — null until published
   sessionToken: varchar('session_token', { length: 128 }).unique(),
-  createdAt: timestamp('created_at').notNull().defaultNow(),
-  updatedAt: timestamp('updated_at').notNull().defaultNow(),
-});
-
-// ─── Session Pages ──────────────────────────────────────────────────────────
-
-export const sessionPages = pgTable('session_pages', {
-  id: serial('id').primaryKey(),
-  sessionId: integer('session_id')
-    .notNull()
-    .references(() => sessions.id, { onDelete: 'cascade' }),
-  position: integer('position').notNull(),
-  title: varchar('title', { length: 200 }).notNull(),
-  // 'intro' | 'question' | 'end'
-  pageType: varchar('page_type', { length: 20 }).notNull().default('question'),
+  // ─── Gate configuration (Story 3.5) ───────────────────────────────────────
+  // Password gate: bcrypt hash, null = no password required
+  passwordHash: text('password_hash'),
+  // Device restriction: 'any' | 'desktop' | 'mobile'
+  deviceRestriction: varchar('device_restriction', { length: 20 }).notNull().default('any'),
+  // GDPR consent: if true, participant must accept before proceeding
+  gdprEnabled: boolean('gdpr_enabled').notNull().default(false),
+  gdprMessage: text('gdpr_message'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 });
 
 // ─── Session Blocks ─────────────────────────────────────────────────────────
+// Flat model: each block is one participant screen. No intermediate pages table.
+// Special block types: 'welcome' (always pos 1) and 'thank_you' (always last).
 
 export const sessionBlocks = pgTable('session_blocks', {
   id: serial('id').primaryKey(),
-  sessionPageId: integer('session_page_id')
+  sessionId: integer('session_id')
     .notNull()
-    .references(() => sessionPages.id, { onDelete: 'cascade' }),
+    .references(() => sessions.id, { onDelete: 'cascade' }),
   position: integer('position').notNull(),
-  // 'short_text' | 'long_text' | 'mcq' | 'likert' | 'rating' | 'nps' | 'card_sort' | 'matrix' | 'first_impression' | 'prototype_task'
+  // 'welcome' | 'thank_you' | 'content' | 'short_text' | 'long_text' | 'mcq' |
+  // 'likert' | 'rating' | 'nps' | 'card_sort' | 'matrix' | 'first_impression' | 'prototype_task'
   blockType: varchar('block_type', { length: 30 }).notNull(),
   config: jsonb('config').notNull().default({}),
   required: boolean('required').notNull().default(false),
@@ -220,30 +219,24 @@ export const sessionBlocks = pgTable('session_blocks', {
 export const sessionsRelations = relations(sessions, ({ one, many }) => ({
   team: one(teams, { fields: [sessions.teamId], references: [teams.id] }),
   project: one(projects, { fields: [sessions.projectId], references: [projects.id] }),
-  pages: many(sessionPages),
-}));
-
-export const sessionPagesRelations = relations(sessionPages, ({ one, many }) => ({
-  session: one(sessions, { fields: [sessionPages.sessionId], references: [sessions.id] }),
   blocks: many(sessionBlocks),
 }));
 
 export const sessionBlocksRelations = relations(sessionBlocks, ({ one }) => ({
-  page: one(sessionPages, { fields: [sessionBlocks.sessionPageId], references: [sessionPages.id] }),
+  session: one(sessions, { fields: [sessionBlocks.sessionId], references: [sessions.id] }),
 }));
 
 // ─── Session Types ──────────────────────────────────────────────────────────
 
 export type Session = typeof sessions.$inferSelect;
 export type NewSession = typeof sessions.$inferInsert;
-export type SessionPage = typeof sessionPages.$inferSelect;
-export type NewSessionPage = typeof sessionPages.$inferInsert;
 export type SessionBlock = typeof sessionBlocks.$inferSelect;
 export type NewSessionBlock = typeof sessionBlocks.$inferInsert;
 
 export type SessionStatus = 'draft' | 'published' | 'archived';
-export type PageType = 'intro' | 'question' | 'end';
+
 export type BlockType =
+  | 'welcome'
   | 'content'
   | 'short_text'
   | 'long_text'
@@ -254,14 +247,85 @@ export type BlockType =
   | 'card_sort'
   | 'matrix'
   | 'first_impression'
-  | 'prototype_task';
+  | 'prototype_task'
+  | 'thank_you';
 
 export type BlockConfig = Record<string, unknown>;
 
-export type SessionPageWithBlocks = SessionPage & {
+export type SessionWithBlocks = Session & {
   blocks: SessionBlock[];
 };
 
-export type SessionWithPages = Session & {
-  pages: SessionPageWithBlocks[];
-};
+// ─── Participant Sessions ────────────────────────────────────────────────────
+
+export const participantSessions = pgTable('participant_sessions', {
+  id: serial('id').primaryKey(),
+  sessionId: integer('session_id')
+    .notNull()
+    .references(() => sessions.id, { onDelete: 'cascade' }),
+  participantToken: varchar('participant_token', { length: 64 }).notNull().unique(),
+  status: varchar('status', { length: 20 }).notNull().default('in_progress'),
+  startedAt: timestamp('started_at').notNull().defaultNow(),
+  completedAt: timestamp('completed_at'),
+});
+
+// ─── Block Responses ─────────────────────────────────────────────────────────
+
+export const blockResponses = pgTable('block_responses', {
+  id: serial('id').primaryKey(),
+  participantSessionId: integer('participant_session_id')
+    .notNull()
+    .references(() => participantSessions.id, { onDelete: 'cascade' }),
+  blockId: integer('block_id')
+    .notNull()
+    .references(() => sessionBlocks.id, { onDelete: 'cascade' }),
+  value: jsonb('value'),
+  answeredAt: timestamp('answered_at').notNull().defaultNow(),
+});
+
+// ─── Consent Records ─────────────────────────────────────────────────────────
+// Immutable record created when a participant accepts GDPR consent.
+
+export const consentRecords = pgTable('consent_records', {
+  id: serial('id').primaryKey(),
+  participantSessionId: integer('participant_session_id')
+    .notNull()
+    .references(() => participantSessions.id, { onDelete: 'cascade' }),
+  consentedAt: timestamp('consented_at').notNull().defaultNow(),
+  ipHash: text('ip_hash'),
+});
+
+// ─── Participant Relations ───────────────────────────────────────────────────
+
+export const participantSessionsRelations = relations(participantSessions, ({ one, many }) => ({
+  session: one(sessions, { fields: [participantSessions.sessionId], references: [sessions.id] }),
+  responses: many(blockResponses),
+  consentRecords: many(consentRecords),
+}));
+
+export const blockResponsesRelations = relations(blockResponses, ({ one }) => ({
+  participantSession: one(participantSessions, {
+    fields: [blockResponses.participantSessionId],
+    references: [participantSessions.id],
+  }),
+  block: one(sessionBlocks, {
+    fields: [blockResponses.blockId],
+    references: [sessionBlocks.id],
+  }),
+}));
+
+export const consentRecordsRelations = relations(consentRecords, ({ one }) => ({
+  participantSession: one(participantSessions, {
+    fields: [consentRecords.participantSessionId],
+    references: [participantSessions.id],
+  }),
+}));
+
+// ─── Participant Types ───────────────────────────────────────────────────────
+
+export type ParticipantSession = typeof participantSessions.$inferSelect;
+export type NewParticipantSession = typeof participantSessions.$inferInsert;
+export type BlockResponse = typeof blockResponses.$inferSelect;
+export type NewBlockResponse = typeof blockResponses.$inferInsert;
+export type ConsentRecord = typeof consentRecords.$inferSelect;
+export type NewConsentRecord = typeof consentRecords.$inferInsert;

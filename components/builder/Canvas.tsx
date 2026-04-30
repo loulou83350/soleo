@@ -1,79 +1,84 @@
 'use client';
 
-import { useState } from 'react';
 import {
-  BookOpen, Flag, AlignLeft, AlignJustify, CheckSquare, BarChart2,
-  Star, Gauge, LayoutGrid, Table2, Eye, Play, Type, Plus, GitBranch,
+  BookOpen, CheckCircle, AlignLeft, AlignJustify, CheckSquare, BarChart2,
+  Star, Gauge, LayoutGrid, Table2, Eye, Play, Type, GitBranch,
 } from 'lucide-react';
-import type { SessionBlock, SessionPageWithBlocks, BlockType } from '@/lib/db/schema';
+import type { SessionBlock, BlockType } from '@/lib/db/schema';
 import { BLOCK_LABELS } from '@/lib/domain/blocks';
-import { BlockPalette } from './BlockPalette';
-import { addBlockAction } from '@/app/(dashboard)/dashboard/projects/[id]/sessions/actions';
 
 // ─── Block type icons ─────────────────────────────────────────────────────────
 
 const BLOCK_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
-  content: Type,
-  short_text: AlignLeft,
-  long_text: AlignJustify,
-  mcq: CheckSquare,
-  likert: BarChart2,
-  rating: Star,
-  nps: Gauge,
-  card_sort: LayoutGrid,
-  matrix: Table2,
+  welcome:          BookOpen,
+  thank_you:        CheckCircle,
+  content:          Type,
+  short_text:       AlignLeft,
+  long_text:        AlignJustify,
+  mcq:              CheckSquare,
+  likert:           BarChart2,
+  rating:           Star,
+  nps:              Gauge,
+  card_sort:        LayoutGrid,
+  matrix:           Table2,
   first_impression: Eye,
-  prototype_task: Play,
+  prototype_task:   Play,
 };
 
 // ─── Block preview card ────────────────────────────────────────────────────────
 
 function BlockCard({
   block,
-  isSelected,
-  onSelect,
 }: {
   block: SessionBlock;
-  isSelected: boolean;
-  onSelect: () => void;
 }) {
   const config = block.config as Record<string, unknown>;
-  const question = typeof config?.question === 'string' ? config.question : '';
   const blockType = block.blockType as BlockType;
   const label = BLOCK_LABELS[blockType] ?? block.blockType;
   const Icon = BLOCK_ICONS[block.blockType] ?? AlignLeft;
-  const isContent = block.blockType === 'content';
+
+  // Derive display title depending on type
+  const title = (() => {
+    switch (block.blockType) {
+      case 'welcome':
+      case 'thank_you':
+        return typeof config.title === 'string' ? config.title : '';
+      case 'content':
+        return typeof config.title === 'string' ? config.title : '';
+      default:
+        return typeof config.question === 'string' ? config.question : '';
+    }
+  })();
+
+  const isEmpty = !title;
 
   return (
-    <button
-      onClick={onSelect}
-      className={`w-full text-left border rounded-lg p-4 transition-colors ${
-        isSelected
-          ? 'border-foreground/40 bg-muted/40 ring-1 ring-foreground/20'
-          : 'border-border bg-background hover:border-foreground/20 hover:bg-muted/20'
-      }`}
-    >
-      <div className="flex items-start gap-3">
-        <div className="h-6 w-6 rounded bg-muted flex items-center justify-center shrink-0 mt-0.5">
-          <Icon className="h-3.5 w-3.5 text-muted-foreground" />
+    <div className="border border-foreground/20 bg-background rounded-xl p-6 ring-1 ring-foreground/10 shadow-sm">
+      <div className="flex items-start gap-4">
+        <div className="h-8 w-8 rounded-lg bg-muted flex items-center justify-center shrink-0 mt-0.5">
+          <Icon className="h-4 w-4 text-muted-foreground" />
         </div>
         <div className="min-w-0 flex-1">
-          <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide mb-1">
+          <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mb-2">
             {label}
           </p>
 
-          {/* Content block: show title + body preview */}
-          {/* Question block: show question text */}
-          {isContent ? null : question ? (
-            <p className="text-sm text-foreground leading-snug">{question}</p>
+          {/* Primary text */}
+          {isEmpty ? (
+            <p className="text-sm text-muted-foreground/50 italic">
+              {block.blockType === 'content' ? 'Titre vide…' :
+               block.blockType === 'welcome' || block.blockType === 'thank_you' ? 'Titre vide…' :
+               'Question vide…'}
+            </p>
           ) : (
-            <p className="text-sm text-muted-foreground italic">Question vide…</p>
+            <p className="text-base font-medium text-foreground leading-snug">{title}</p>
           )}
 
           {/* Type-specific inline preview */}
           <BlockPreview block={block} />
 
-          <div className="mt-1.5 flex items-center gap-2 flex-wrap">
+          {/* Badges */}
+          <div className="mt-3 flex items-center gap-2 flex-wrap">
             {block.required && (
               <span className="text-[10px] text-destructive font-medium">
                 Obligatoire
@@ -88,7 +93,7 @@ function BlockCard({
           </div>
         </div>
       </div>
-    </button>
+    </div>
   );
 }
 
@@ -96,83 +101,119 @@ function BlockPreview({ block }: { block: SessionBlock }) {
   const config = block.config as Record<string, unknown>;
 
   switch (block.blockType) {
-    case 'content': {
-      const title = typeof config.title === 'string' ? config.title : '';
-      const body = typeof config.body === 'string' ? config.body : '';
+    case 'welcome': {
+      const description = typeof config.description === 'string' ? config.description : '';
+      const buttonText  = typeof config.buttonText === 'string' ? config.buttonText : 'Commencer';
       return (
-        <div className="mt-1.5 space-y-0.5">
-          {title ? (
-            <p className="text-sm font-semibold text-foreground leading-snug">{title}</p>
-          ) : (
-            <p className="text-sm text-muted-foreground italic">Titre vide…</p>
+        <div className="mt-3 space-y-3">
+          {description && (
+            <p className="text-sm text-muted-foreground leading-relaxed">{description}</p>
           )}
-          {body ? (
-            <p className="text-xs text-muted-foreground leading-snug line-clamp-2">{body}</p>
-          ) : null}
+          <div className="inline-flex items-center px-4 py-2 text-sm font-medium bg-foreground text-background rounded-lg">
+            {buttonText}
+          </div>
         </div>
       );
     }
+    case 'thank_you': {
+      const description = typeof config.description === 'string' ? config.description : '';
+      return description ? (
+        <p className="mt-2 text-sm text-muted-foreground leading-relaxed">{description}</p>
+      ) : null;
+    }
+    case 'content': {
+      const body = typeof config.body === 'string' ? config.body : '';
+      return body ? (
+        <p className="mt-1.5 text-sm text-muted-foreground leading-snug line-clamp-3">{body}</p>
+      ) : null;
+    }
     case 'mcq': {
-      const options = Array.isArray(config.options) ? config.options.slice(0, 3) : [];
+      const options = Array.isArray(config.options) ? config.options.slice(0, 4) : [];
       if (options.length === 0) return null;
+      const allowMultiple = !!config.allowMultiple;
       return (
-        <ul className="mt-1.5 space-y-0.5">
+        <ul className="mt-3 space-y-1.5">
           {options.map((opt, i) => (
-            <li key={i} className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <span className="h-3 w-3 rounded-full border border-muted-foreground/40 shrink-0" />
+            <li key={i} className="flex items-center gap-2 text-sm text-muted-foreground">
+              <span className={`h-4 w-4 shrink-0 border border-muted-foreground/40 ${allowMultiple ? 'rounded' : 'rounded-full'}`} />
               {String(opt) || `Option ${i + 1}`}
             </li>
           ))}
-          {Array.isArray(config.options) && config.options.length > 3 && (
-            <li className="text-xs text-muted-foreground/60">+{config.options.length - 3} autres…</li>
+          {Array.isArray(config.options) && config.options.length > 4 && (
+            <li className="text-xs text-muted-foreground/50">+{config.options.length - 4} autres…</li>
           )}
         </ul>
       );
     }
     case 'likert': {
       const scale = Number(config.scale) || 5;
+      const low   = typeof config.lowLabel === 'string' ? config.lowLabel : '';
+      const high  = typeof config.highLabel === 'string' ? config.highLabel : '';
       return (
-        <div className="mt-1.5 flex gap-1">
-          {Array.from({ length: scale }).map((_, i) => (
-            <div key={i} className="h-4 w-4 rounded border border-muted-foreground/30 bg-muted" />
-          ))}
+        <div className="mt-3">
+          <div className="flex gap-1.5">
+            {Array.from({ length: scale }).map((_, i) => (
+              <div key={i} className="flex-1 h-8 rounded border border-muted-foreground/20 bg-muted flex items-center justify-center text-xs text-muted-foreground">
+                {i + 1}
+              </div>
+            ))}
+          </div>
+          {(low || high) && (
+            <div className="flex justify-between mt-1">
+              <span className="text-[10px] text-muted-foreground/70">{low}</span>
+              <span className="text-[10px] text-muted-foreground/70">{high}</span>
+            </div>
+          )}
         </div>
       );
     }
     case 'rating': {
       const max = Number(config.max) || 5;
       return (
-        <div className="mt-1.5 flex gap-0.5">
+        <div className="mt-3 flex gap-1">
           {Array.from({ length: max }).map((_, i) => (
-            <Star key={i} className="h-3 w-3 text-muted-foreground/40" />
+            <Star key={i} className="h-5 w-5 text-muted-foreground/30" />
           ))}
         </div>
       );
     }
     case 'nps': {
+      const low  = typeof config.lowLabel === 'string' ? config.lowLabel : '';
+      const high = typeof config.highLabel === 'string' ? config.highLabel : '';
       return (
-        <div className="mt-1.5 flex gap-0.5">
-          {Array.from({ length: 11 }).map((_, i) => (
-            <div key={i} className="h-4 w-4 flex items-center justify-center rounded border border-muted-foreground/20 text-[8px] text-muted-foreground">
-              {i}
+        <div className="mt-3">
+          <div className="flex gap-1">
+            {Array.from({ length: 11 }).map((_, i) => (
+              <div key={i} className="flex-1 h-8 flex items-center justify-center rounded border border-muted-foreground/20 text-xs text-muted-foreground">
+                {i}
+              </div>
+            ))}
+          </div>
+          {(low || high) && (
+            <div className="flex justify-between mt-1">
+              <span className="text-[10px] text-muted-foreground/70">{low}</span>
+              <span className="text-[10px] text-muted-foreground/70">{high}</span>
             </div>
-          ))}
+          )}
         </div>
       );
     }
     case 'card_sort': {
-      const items = Array.isArray(config.items) ? config.items.slice(0, 3) : [];
+      const items = Array.isArray(config.items) ? config.items.slice(0, 4) : [];
       if (items.length === 0) return null;
       return (
-        <div className="mt-1.5 flex gap-1 flex-wrap">
+        <div className="mt-3 flex gap-1.5 flex-wrap">
           {items.map((item, i) => {
             const card = item as Record<string, unknown>;
             return (
-              <span key={i} className="px-2 py-0.5 text-[10px] border border-border rounded bg-muted text-muted-foreground">
+              <span key={i} className="px-2.5 py-1 text-xs border border-border rounded-md bg-muted text-muted-foreground">
                 {String(card.label || `Carte ${i + 1}`)}
               </span>
             );
           })}
+          {Array.isArray(config.items) && config.items.length > 4 && (
+            <span className="text-xs text-muted-foreground/50">+{config.items.length - 4}…</span>
+          )}
         </div>
       );
     }
@@ -180,26 +221,26 @@ function BlockPreview({ block }: { block: SessionBlock }) {
       const rows = Array.isArray(config.rows) ? config.rows.length : 0;
       const cols = Array.isArray(config.columns) ? config.columns.length : 0;
       return (
-        <p className="mt-1.5 text-xs text-muted-foreground">{rows} lignes × {cols} colonnes</p>
+        <p className="mt-2 text-sm text-muted-foreground">{rows} ligne{rows !== 1 ? 's' : ''} × {cols} colonne{cols !== 1 ? 's' : ''}</p>
       );
     }
     case 'first_impression': {
       const duration = Number(config.duration ?? 5);
       return (
-        <div className="mt-1.5 flex items-center gap-2">
+        <div className="mt-3 flex items-center gap-3">
           {config.imageUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
               src={config.imageUrl as string}
               alt=""
-              className="h-8 w-12 object-cover rounded border border-border"
+              className="h-16 w-24 object-cover rounded-md border border-border"
             />
           ) : (
-            <div className="h-8 w-12 rounded border border-dashed border-border bg-muted flex items-center justify-center">
-              <Eye className="h-3 w-3 text-muted-foreground/40" />
+            <div className="h-16 w-24 rounded-md border border-dashed border-border bg-muted flex items-center justify-center">
+              <Eye className="h-4 w-4 text-muted-foreground/40" />
             </div>
           )}
-          <span className="text-[10px] px-1.5 py-0.5 bg-muted rounded text-muted-foreground font-medium">
+          <span className="text-xs px-2 py-1 bg-muted rounded font-medium text-muted-foreground">
             {duration} s
           </span>
         </div>
@@ -210,11 +251,11 @@ function BlockPreview({ block }: { block: SessionBlock }) {
       let domain = '';
       try { domain = url ? new URL(url).hostname : ''; } catch { /* ignore */ }
       return (
-        <div className="mt-1.5 flex items-center gap-2">
-          <div className="h-7 w-7 rounded border border-border bg-muted flex items-center justify-center shrink-0">
-            <Play className="h-3 w-3 text-muted-foreground/60" />
+        <div className="mt-3 flex items-center gap-2">
+          <div className="h-8 w-8 rounded border border-border bg-muted flex items-center justify-center shrink-0">
+            <Play className="h-3.5 w-3.5 text-muted-foreground/60" />
           </div>
-          <span className="text-xs text-muted-foreground truncate">
+          <span className="text-sm text-muted-foreground truncate">
             {domain || (url ? url : 'URL non définie')}
           </span>
         </div>
@@ -225,144 +266,33 @@ function BlockPreview({ block }: { block: SessionBlock }) {
   }
 }
 
-// ─── Special page content ──────────────────────────────────────────────────────
-
-function IntroPageContent() {
-  return (
-    <div className="flex flex-col items-center justify-center py-16 text-center space-y-3">
-      <div className="h-12 w-12 rounded-full bg-muted flex items-center justify-center">
-        <BookOpen className="h-5 w-5 text-muted-foreground" />
-      </div>
-      <div>
-        <p className="text-sm font-medium text-foreground">Page d'introduction</p>
-        <p className="text-xs text-muted-foreground mt-1 max-w-xs">
-          Les participants verront cette page en premier. La configuration du texte d'accueil sera disponible dans Story 3.x.
-        </p>
-      </div>
-    </div>
-  );
-}
-
-function EndPageContent() {
-  return (
-    <div className="flex flex-col items-center justify-center py-16 text-center space-y-3">
-      <div className="h-12 w-12 rounded-full bg-muted flex items-center justify-center">
-        <Flag className="h-5 w-5 text-muted-foreground" />
-      </div>
-      <div>
-        <p className="text-sm font-medium text-foreground">Page de fin</p>
-        <p className="text-xs text-muted-foreground mt-1">
-          Les participants verront cette page après avoir complété la session.
-        </p>
-      </div>
-    </div>
-  );
-}
-
 // ─── Canvas ────────────────────────────────────────────────────────────────────
 
 interface CanvasProps {
-  sessionId: number;
-  page: SessionPageWithBlocks | null;
-  selectedBlockId: number | null;
+  block: SessionBlock | null;
   onSelectBlock: (blockId: number) => void;
-  onBlockAdded: (pageId: number, block: SessionBlock) => void;
 }
 
-export function Canvas({ sessionId, page, selectedBlockId, onSelectBlock, onBlockAdded }: CanvasProps) {
-  const [paletteOpen, setPaletteOpen] = useState(false);
-  const [addingBlock, setAddingBlock] = useState(false);
-
-  async function handleSelectBlockType(blockType: BlockType) {
-    if (!page) return;
-    setPaletteOpen(false);
-    setAddingBlock(true);
-    const result = await addBlockAction(sessionId, page.id, blockType);
-    setAddingBlock(false);
-    if (result.success && result.data) {
-      onBlockAdded(page.id, result.data.block);
-      onSelectBlock(result.data.block.id);
-    }
-  }
-
-  if (!page) {
+export function Canvas({ block, onSelectBlock }: CanvasProps) {
+  if (!block) {
     return (
-      <div className="flex-1 flex items-center justify-center bg-muted/20">
-        <p className="text-sm text-muted-foreground">Sélectionnez une page</p>
-      </div>
+      <main className="flex-1 flex items-center justify-center bg-muted/20">
+        <p className="text-sm text-muted-foreground">Sélectionnez une étape</p>
+      </main>
     );
   }
 
   return (
-    <main className="flex-1 overflow-y-auto bg-muted/20 p-6 relative">
-      <div className="max-w-2xl mx-auto space-y-3">
-        {/* Page header */}
-        <div className="flex items-center justify-between mb-4">
-          <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-            {page.pageType === 'intro' ? 'Introduction' : page.pageType === 'end' ? 'Fin' : page.title}
-          </span>
-          {page.pageType === 'question' && (
-            <button
-              onClick={() => setPaletteOpen(true)}
-              disabled={addingBlock}
-              className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground border border-border rounded-md px-2.5 py-1.5 hover:bg-background transition-colors disabled:opacity-50"
-            >
-              <Plus className="h-3.5 w-3.5" />
-              {addingBlock ? 'Ajout…' : 'Ajouter un bloc'}
-            </button>
-          )}
-        </div>
-
-        {page.pageType === 'intro' && <IntroPageContent />}
-        {page.pageType === 'end' && <EndPageContent />}
-
-        {page.pageType === 'question' && (
-          <>
-            {page.blocks.length === 0 ? (
-              <div
-                className="border border-dashed border-border rounded-lg p-12 text-center cursor-pointer hover:border-foreground/30 hover:bg-background/60 transition-colors"
-                onClick={() => setPaletteOpen(true)}
-              >
-                <Plus className="h-6 w-6 text-muted-foreground/40 mx-auto mb-2" />
-                <p className="text-sm text-muted-foreground">
-                  Cliquez pour ajouter votre premier bloc
-                </p>
-              </div>
-            ) : (
-              <>
-                {page.blocks.map((block) => (
-                  <BlockCard
-                    key={block.id}
-                    block={block}
-                    isSelected={block.id === selectedBlockId}
-                    onSelect={() => onSelectBlock(block.id)}
-                  />
-                ))}
-                {/* Add block at bottom */}
-                <div className="flex justify-center pt-2">
-                  <button
-                    onClick={() => setPaletteOpen(true)}
-                    disabled={addingBlock}
-                    className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
-                  >
-                    <Plus className="h-3.5 w-3.5" />
-                    {addingBlock ? 'Ajout…' : 'Ajouter un bloc'}
-                  </button>
-                </div>
-              </>
-            )}
-          </>
-        )}
+    <main className="flex-1 overflow-y-auto bg-muted/20 p-8">
+      <div className="max-w-2xl mx-auto">
+        <button
+          onClick={() => onSelectBlock(block.id)}
+          className="w-full text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-foreground/30 rounded-xl"
+          aria-label={`Configurer ce bloc`}
+        >
+          <BlockCard block={block} />
+        </button>
       </div>
-
-      {/* BlockPalette */}
-      {paletteOpen && (
-        <BlockPalette
-          onSelect={handleSelectBlockType}
-          onClose={() => setPaletteOpen(false)}
-          isLoading={addingBlock}
-        />
-      )}
     </main>
   );
 }

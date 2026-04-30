@@ -3,77 +3,63 @@ import { createId } from '@paralleldrive/cuid2';
 import { db } from '@/lib/db/drizzle';
 import {
   sessions,
-  sessionPages,
   sessionBlocks,
   Session,
-  SessionPage,
-  SessionWithPages,
+  SessionBlock,
+  SessionWithBlocks,
 } from '@/lib/db/schema';
-import { BLOCK_LABELS } from '@/lib/domain/blocks';
+import { BLOCK_DEFAULTS, BLOCK_LABELS, ANCHOR_BLOCK_TYPES } from '@/lib/domain/blocks';
 import type { ValidationIssue } from '@/lib/domain/types';
 import type { Template } from '@/lib/domain/templates';
 
 // ─── Create ─────────────────────────────────────────────────────────────────
 
 /**
- * Creates a new session in draft state with default pages:
- *   1. Intro page (type='intro')
- *   2. Question page (type='question') + one empty open_text block
- *   3. End page (type='end')
+ * Creates a new session in draft state with three default blocks:
+ *   1. welcome  (pos 1)
+ *   2. short_text (pos 2)
+ *   3. thank_you  (pos 3)
  * All scoped to teamId (workspace isolation).
  */
 export async function createSession(
   teamId: number,
   projectId: number
 ): Promise<Session> {
-  // 1. Create the session
   const [session] = await db
     .insert(sessions)
     .values({ teamId, projectId, title: 'Nouvelle session', status: 'draft' })
     .returning();
 
-  // 2. Create intro page
-  await db.insert(sessionPages).values({
-    sessionId: session.id,
-    position: 1,
-    title: 'Introduction',
-    pageType: 'intro',
-  });
-
-  // 3. Create question page
-  const [questionPage] = await db
-    .insert(sessionPages)
-    .values({
+  await db.insert(sessionBlocks).values([
+    {
+      sessionId: session.id,
+      position: 1,
+      blockType: 'welcome',
+      config: BLOCK_DEFAULTS.welcome,
+      required: false,
+    },
+    {
       sessionId: session.id,
       position: 2,
-      title: 'Page 1',
-      pageType: 'question',
-    })
-    .returning();
-
-  // 4. Create default short_text block on the question page
-  await db.insert(sessionBlocks).values({
-    sessionPageId: questionPage.id,
-    position: 1,
-    blockType: 'short_text',
-    config: { question: '', placeholder: '' },
-    required: false,
-  });
-
-  // 5. Create end page
-  await db.insert(sessionPages).values({
-    sessionId: session.id,
-    position: 3,
-    title: 'Fin',
-    pageType: 'end',
-  });
+      blockType: 'short_text',
+      config: BLOCK_DEFAULTS.short_text,
+      required: false,
+    },
+    {
+      sessionId: session.id,
+      position: 3,
+      blockType: 'thank_you',
+      config: BLOCK_DEFAULTS.thank_you,
+      required: false,
+    },
+  ]);
 
   return session;
 }
 
 /**
  * Creates a session pre-populated from a template.
- * All pages and blocks are inserted sequentially to preserve positions.
+ * Template.blocks is a flat array (welcome … questions … thank_you).
  */
 export async function createSessionFromTemplate(
   teamId: number,
@@ -85,30 +71,15 @@ export async function createSessionFromTemplate(
     .values({ teamId, projectId, title: template.name, status: 'draft' })
     .returning();
 
-  for (let pageIdx = 0; pageIdx < template.pages.length; pageIdx++) {
-    const tPage = template.pages[pageIdx];
-
-    const [page] = await db
-      .insert(sessionPages)
-      .values({
-        sessionId: session.id,
-        position: pageIdx + 1,
-        title: tPage.title,
-        pageType: tPage.pageType,
-      })
-      .returning();
-
-    for (let blockIdx = 0; blockIdx < tPage.blocks.length; blockIdx++) {
-      const tBlock = tPage.blocks[blockIdx];
-      await db.insert(sessionBlocks).values({
-        sessionPageId: page.id,
-        position: blockIdx + 1,
-        blockType: tBlock.blockType,
-        config: tBlock.config,
-        required: tBlock.required,
-      });
-    }
-  }
+  await db.insert(sessionBlocks).values(
+    template.blocks.map((tBlock, idx) => ({
+      sessionId: session.id,
+      position: idx + 1,
+      blockType: tBlock.blockType,
+      config: tBlock.config,
+      required: tBlock.required ?? false,
+    }))
+  );
 
   return session;
 }
@@ -116,8 +87,7 @@ export async function createSessionFromTemplate(
 // ─── Read ────────────────────────────────────────────────────────────────────
 
 /**
- * Returns all sessions for a project, scoped by teamId.
- * Ordered newest-first.
+ * Returns all sessions for a project, scoped by teamId. Newest-first.
  */
 export async function getSessionsByProject(
   projectId: number,
@@ -131,13 +101,13 @@ export async function getSessionsByProject(
 }
 
 /**
- * Returns a session with all its pages and blocks, scoped by teamId.
- * Pages ordered by position; blocks ordered by position within each page.
+ * Returns a session with its flat blocks list, scoped by teamId.
+ * Blocks are ordered by position.
  */
-export async function getSessionWithPages(
+export async function getSessionWithBlocks(
   sessionId: number,
   teamId: number
-): Promise<SessionWithPages | null> {
+): Promise<SessionWithBlocks | null> {
   const [session] = await db
     .select()
     .from(sessions)
@@ -146,37 +116,13 @@ export async function getSessionWithPages(
 
   if (!session) return null;
 
-  const pages = await db
+  const blocks = await db
     .select()
-    .from(sessionPages)
-    .where(eq(sessionPages.sessionId, sessionId))
-    .orderBy(asc(sessionPages.position));
+    .from(sessionBlocks)
+    .where(eq(sessionBlocks.sessionId, sessionId))
+    .orderBy(asc(sessionBlocks.position));
 
-  const pageIds = pages.map((p) => p.id);
-  const blocks =
-    pageIds.length > 0
-      ? await db
-          .select()
-          .from(sessionBlocks)
-          .where(inArray(sessionBlocks.sessionPageId, pageIds))
-          .orderBy(asc(sessionBlocks.position))
-      : [];
-
-  // Group blocks by page
-  const blocksByPage = new Map<number, typeof blocks>();
-  for (const block of blocks) {
-    const list = blocksByPage.get(block.sessionPageId) ?? [];
-    list.push(block);
-    blocksByPage.set(block.sessionPageId, list);
-  }
-
-  return {
-    ...session,
-    pages: pages.map((page) => ({
-      ...page,
-      blocks: blocksByPage.get(page.id) ?? [],
-    })),
-  };
+  return { ...session, blocks };
 }
 
 // ─── Update ──────────────────────────────────────────────────────────────────
@@ -195,160 +141,10 @@ export async function updateSessionTitle(
     .where(and(eq(sessions.id, sessionId), eq(sessions.teamId, teamId)));
 }
 
-/**
- * Adds a new empty question page to a session, inserted after `afterPageId`.
- * Intro and end page positions are preserved; intermediate pages are renumbered.
- * Returns the full updated pages list (without blocks — caller can merge).
- */
-export async function addPage(
-  sessionId: number,
-  teamId: number,
-  afterPageId: number
-): Promise<SessionPage[]> {
-  // Verify session belongs to team
-  const [session] = await db
-    .select()
-    .from(sessions)
-    .where(and(eq(sessions.id, sessionId), eq(sessions.teamId, teamId)))
-    .limit(1);
-  if (!session) throw new Error('Session not found');
-
-  // Load current pages sorted by position
-  const currentPages = await db
-    .select()
-    .from(sessionPages)
-    .where(eq(sessionPages.sessionId, sessionId))
-    .orderBy(asc(sessionPages.position));
-
-  const afterIdx = currentPages.findIndex((p) => p.id === afterPageId);
-  const insertIdx = afterIdx === -1 ? currentPages.length - 1 : afterIdx + 1;
-
-  // Never insert after the end page (always keep end last)
-  const endIdx = currentPages.findIndex((p) => p.pageType === 'end');
-  const safeInsertIdx = endIdx !== -1 ? Math.min(insertIdx, endIdx) : insertIdx;
-
-  // Build new ordered list with a placeholder for the new page
-  const newPageTitle = `Page ${currentPages.filter((p) => p.pageType === 'question').length + 1}`;
-  const [newPage] = await db
-    .insert(sessionPages)
-    .values({
-      sessionId,
-      position: 9999, // temporary; renumbered below
-      title: newPageTitle,
-      pageType: 'question',
-    })
-    .returning();
-
-  // Splice the new page into the ordered list at the safe position
-  const reordered = [
-    ...currentPages.slice(0, safeInsertIdx),
-    newPage,
-    ...currentPages.slice(safeInsertIdx),
-  ];
-
-  // Renumber all pages 1…n
-  await Promise.all(
-    reordered.map((page, idx) =>
-      db
-        .update(sessionPages)
-        .set({ position: idx + 1, updatedAt: new Date() })
-        .where(eq(sessionPages.id, page.id))
-    )
-  );
-
-  // Return final sorted pages
-  return db
-    .select()
-    .from(sessionPages)
-    .where(eq(sessionPages.sessionId, sessionId))
-    .orderBy(asc(sessionPages.position));
-}
-
-/**
- * Reorders pages to match `orderedPageIds`.
- * Intro and end pages must remain at first and last positions.
- * Positions are renumbered 1…n based on the provided order.
- */
-export async function reorderPages(
-  sessionId: number,
-  teamId: number,
-  orderedPageIds: number[]
-): Promise<void> {
-  // Verify session belongs to team
-  const [session] = await db
-    .select()
-    .from(sessions)
-    .where(and(eq(sessions.id, sessionId), eq(sessions.teamId, teamId)))
-    .limit(1);
-  if (!session) throw new Error('Session not found');
-
-  // Update each page's position according to its index in orderedPageIds
-  await Promise.all(
-    orderedPageIds.map((pageId, idx) =>
-      db
-        .update(sessionPages)
-        .set({ position: idx + 1, updatedAt: new Date() })
-        .where(and(eq(sessionPages.id, pageId), eq(sessionPages.sessionId, sessionId)))
-    )
-  );
-}
-
-// ─── Delete page ─────────────────────────────────────────────────────────────
-
-/**
- * Deletes a question page and renumbers remaining pages.
- * Intro and end pages cannot be deleted.
- */
-export async function deletePage(
-  sessionId: number,
-  teamId: number,
-  pageId: number
-): Promise<SessionPage[]> {
-  // Verify session belongs to team
-  const [session] = await db
-    .select()
-    .from(sessions)
-    .where(and(eq(sessions.id, sessionId), eq(sessions.teamId, teamId)))
-    .limit(1);
-  if (!session) throw new Error('Session introuvable');
-
-  // Load target page
-  const [page] = await db
-    .select()
-    .from(sessionPages)
-    .where(and(eq(sessionPages.id, pageId), eq(sessionPages.sessionId, sessionId)))
-    .limit(1);
-  if (!page) throw new Error('Page introuvable');
-  if (page.pageType !== 'question') throw new Error('Impossible de supprimer cette page');
-
-  // Delete page (cascades to its blocks)
-  await db
-    .delete(sessionPages)
-    .where(eq(sessionPages.id, pageId));
-
-  // Renumber remaining pages
-  const remaining = await db
-    .select()
-    .from(sessionPages)
-    .where(eq(sessionPages.sessionId, sessionId))
-    .orderBy(asc(sessionPages.position));
-
-  await Promise.all(
-    remaining.map((p, idx) =>
-      db
-        .update(sessionPages)
-        .set({ position: idx + 1, updatedAt: new Date() })
-        .where(eq(sessionPages.id, p.id))
-    )
-  );
-
-  return remaining;
-}
-
 // ─── Delete session ───────────────────────────────────────────────────────────
 
 /**
- * Deletes a session and all its pages/blocks (cascade).
+ * Deletes a session and all its blocks (cascade).
  */
 export async function deleteSession(
   sessionId: number,
@@ -376,7 +172,7 @@ export async function publishSession(
   sessionId: number,
   teamId: number
 ): Promise<string> {
-  const session = await getSessionWithPages(sessionId, teamId);
+  const session = await getSessionWithBlocks(sessionId, teamId);
   if (!session) throw new Error('Session introuvable');
 
   // If already published and has a token, just return it
@@ -384,34 +180,30 @@ export async function publishSession(
     return session.sessionToken;
   }
 
-  // Validate all blocks on question pages
+  // Validate all non-anchor, non-content blocks
   const issues: ValidationIssue[] = [];
+  const skipValidation = new Set([...ANCHOR_BLOCK_TYPES, 'content']);
 
-  for (const page of session.pages) {
-    if (page.pageType !== 'question') continue;
+  for (const block of session.blocks) {
+    if (skipValidation.has(block.blockType)) continue;
 
-    for (const block of page.blocks) {
-      const config = block.config as Record<string, unknown>;
-      const blockLabel = BLOCK_LABELS[block.blockType as keyof typeof BLOCK_LABELS] ?? block.blockType;
+    const config = block.config as Record<string, unknown>;
+    const blockLabel = BLOCK_LABELS[block.blockType as keyof typeof BLOCK_LABELS] ?? block.blockType;
 
-      // Content blocks (title/text) don't require a question — skip validation
-      if (block.blockType === 'content') continue;
-
-      if (block.blockType === 'first_impression') {
-        const imageUrl = typeof config.imageUrl === 'string' ? config.imageUrl : '';
-        if (!imageUrl.trim()) {
-          issues.push({ pageTitle: page.title, blockLabel, issue: 'Image requise' });
-        }
-      } else if (block.blockType === 'prototype_task') {
-        const url = typeof config.url === 'string' ? config.url : '';
-        if (!url.trim()) {
-          issues.push({ pageTitle: page.title, blockLabel, issue: 'URL du prototype requise' });
-        }
-      } else {
-        const question = typeof config.question === 'string' ? config.question : '';
-        if (!question.trim()) {
-          issues.push({ pageTitle: page.title, blockLabel, issue: 'Question vide' });
-        }
+    if (block.blockType === 'first_impression') {
+      const imageUrl = typeof config.imageUrl === 'string' ? config.imageUrl : '';
+      if (!imageUrl.trim()) {
+        issues.push({ pageTitle: blockLabel, blockLabel, issue: 'Image requise' });
+      }
+    } else if (block.blockType === 'prototype_task') {
+      const url = typeof config.url === 'string' ? config.url : '';
+      if (!url.trim()) {
+        issues.push({ pageTitle: blockLabel, blockLabel, issue: 'URL du prototype requise' });
+      }
+    } else {
+      const question = typeof config.question === 'string' ? config.question : '';
+      if (!question.trim()) {
+        issues.push({ pageTitle: blockLabel, blockLabel, issue: 'Question vide' });
       }
     }
   }
@@ -436,7 +228,7 @@ export async function publishSession(
  * Loads a published session by its public CUID2 token.
  * Returns null if the token doesn't match or session isn't published.
  */
-export async function getSessionByToken(token: string): Promise<SessionWithPages | null> {
+export async function getSessionByToken(token: string): Promise<SessionWithBlocks | null> {
   const [session] = await db
     .select()
     .from(sessions)
@@ -445,34 +237,81 @@ export async function getSessionByToken(token: string): Promise<SessionWithPages
 
   if (!session) return null;
 
-  const pages = await db
+  const blocks = await db
     .select()
-    .from(sessionPages)
-    .where(eq(sessionPages.sessionId, session.id))
-    .orderBy(asc(sessionPages.position));
+    .from(sessionBlocks)
+    .where(eq(sessionBlocks.sessionId, session.id))
+    .orderBy(asc(sessionBlocks.position));
 
-  const pageIds = pages.map((p) => p.id);
-  const blocks =
-    pageIds.length > 0
-      ? await db
-          .select()
-          .from(sessionBlocks)
-          .where(inArray(sessionBlocks.sessionPageId, pageIds))
-          .orderBy(asc(sessionBlocks.position))
-      : [];
+  return { ...session, blocks };
+}
 
-  const blocksByPage = new Map<number, typeof blocks>();
-  for (const block of blocks) {
-    const list = blocksByPage.get(block.sessionPageId) ?? [];
-    list.push(block);
-    blocksByPage.set(block.sessionPageId, list);
+// ─── Reorder blocks ───────────────────────────────────────────────────────────
+
+/**
+ * Reorders blocks to match `orderedBlockIds`.
+ * Enforces welcome stays at pos 1 and thank_you stays at pos last.
+ */
+export async function reorderBlocks(
+  sessionId: number,
+  teamId: number,
+  orderedBlockIds: number[]
+): Promise<void> {
+  const [session] = await db
+    .select()
+    .from(sessions)
+    .where(and(eq(sessions.id, sessionId), eq(sessions.teamId, teamId)))
+    .limit(1);
+  if (!session) throw new Error('Session introuvable');
+
+  await Promise.all(
+    orderedBlockIds.map((blockId, idx) =>
+      db
+        .update(sessionBlocks)
+        .set({ position: idx + 1, updatedAt: new Date() })
+        .where(and(eq(sessionBlocks.id, blockId), eq(sessionBlocks.sessionId, sessionId)))
+    )
+  );
+}
+
+// ─── Gate configuration (Story 3.5) ─────────────────────────────────────────
+
+export interface GateConfig {
+  /** Plain-text password (will be hashed server-side). Pass null to remove password. */
+  password: string | null;
+  deviceRestriction: 'any' | 'desktop' | 'mobile';
+  gdprEnabled: boolean;
+  gdprMessage: string | null;
+}
+
+/**
+ * Updates the gate configuration of a session.
+ * Hashes the password with bcryptjs before storing.
+ */
+export async function setSessionGate(
+  sessionId: number,
+  teamId: number,
+  config: GateConfig
+): Promise<void> {
+  let passwordHash: string | null = null;
+
+  if (config.password) {
+    const { hashPassword } = await import('@/lib/auth/session');
+    passwordHash = await hashPassword(config.password);
   }
 
-  return {
-    ...session,
-    pages: pages.map((page) => ({
-      ...page,
-      blocks: blocksByPage.get(page.id) ?? [],
-    })),
-  };
+  await db
+    .update(sessions)
+    .set({
+      passwordHash,
+      deviceRestriction: config.deviceRestriction,
+      gdprEnabled: config.gdprEnabled,
+      gdprMessage: config.gdprMessage,
+      updatedAt: new Date(),
+    })
+    .where(and(eq(sessions.id, sessionId), eq(sessions.teamId, teamId)));
 }
+
+// Legacy alias kept for any remaining references (to be removed after full migration)
+/** @deprecated use getSessionWithBlocks */
+export const getSessionWithPages = getSessionWithBlocks;

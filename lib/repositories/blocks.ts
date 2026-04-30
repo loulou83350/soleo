@@ -1,74 +1,89 @@
-import { eq, and, max } from 'drizzle-orm';
+import { eq, and, asc, sql } from 'drizzle-orm';
 import { db } from '@/lib/db/drizzle';
-import { sessions, sessionPages, sessionBlocks, SessionBlock } from '@/lib/db/schema';
+import { sessions, sessionBlocks, SessionBlock } from '@/lib/db/schema';
 import type { BlockType, BlockConfig } from '@/lib/db/schema';
 import type { BlockVisibilityRule } from '@/lib/domain/types';
-import { BLOCK_DEFAULTS } from '@/lib/domain/blocks';
+import { BLOCK_DEFAULTS, ANCHOR_BLOCK_TYPES } from '@/lib/domain/blocks';
 
 // ─── Internal: team-scoped block lookup ──────────────────────────────────────
 
 /**
  * Returns the block + its session's teamId for authorization checks.
- * Joins: session_blocks → session_pages → sessions
+ * Joins: session_blocks → sessions (flat model — no pages).
  */
 async function getBlockWithSession(blockId: number) {
   const [row] = await db
     .select({
       block: sessionBlocks,
       teamId: sessions.teamId,
-      sessionPageId: sessionBlocks.sessionPageId,
+      sessionId: sessionBlocks.sessionId,
     })
     .from(sessionBlocks)
-    .innerJoin(sessionPages, eq(sessionPages.id, sessionBlocks.sessionPageId))
-    .innerJoin(sessions, eq(sessions.id, sessionPages.sessionId))
+    .innerJoin(sessions, eq(sessions.id, sessionBlocks.sessionId))
     .where(eq(sessionBlocks.id, blockId))
     .limit(1);
   return row ?? null;
 }
 
-/**
- * Returns the session's teamId for a given page.
- */
-async function getPageTeamId(sessionPageId: number): Promise<number | null> {
-  const [row] = await db
-    .select({ teamId: sessions.teamId })
-    .from(sessionPages)
-    .innerJoin(sessions, eq(sessions.id, sessionPages.sessionId))
-    .where(eq(sessionPages.id, sessionPageId))
-    .limit(1);
-  return row?.teamId ?? null;
-}
-
 // ─── Create ──────────────────────────────────────────────────────────────────
 
 /**
- * Adds a new block of the given type to a page.
- * Position = current max + 1.
- * Config is pre-populated with sensible defaults.
+ * Adds a new block to a session after `afterBlockId`.
+ * The new block is inserted at position afterBlock.position + 1;
+ * all subsequent blocks are shifted up by 1.
+ * welcome and thank_you types cannot be inserted via this function.
  */
 export async function addBlock(
-  sessionPageId: number,
+  sessionId: number,
   teamId: number,
+  afterBlockId: number,
   blockType: BlockType
 ): Promise<SessionBlock> {
-  // Verify page belongs to team
-  const pageTeamId = await getPageTeamId(sessionPageId);
-  if (pageTeamId !== teamId) throw new Error('Page introuvable');
+  // Guard: cannot add anchor block types through palette
+  if (ANCHOR_BLOCK_TYPES.includes(blockType)) {
+    throw new Error('Ce type de bloc ne peut pas être ajouté manuellement');
+  }
 
-  // Compute next position
-  const maxResult = await db
-    .select({ maxPos: max(sessionBlocks.position) })
-    .from(sessionBlocks)
-    .where(eq(sessionBlocks.sessionPageId, sessionPageId))
+  // Verify session belongs to team
+  const [session] = await db
+    .select()
+    .from(sessions)
+    .where(and(eq(sessions.id, sessionId), eq(sessions.teamId, teamId)))
     .limit(1);
+  if (!session) throw new Error('Session introuvable');
 
-  const position = (maxResult[0]?.maxPos ?? 0) + 1;
+  // Get the afterBlock's position
+  const [afterBlock] = await db
+    .select()
+    .from(sessionBlocks)
+    .where(and(eq(sessionBlocks.id, afterBlockId), eq(sessionBlocks.sessionId, sessionId)))
+    .limit(1);
+  if (!afterBlock) throw new Error('Bloc de référence introuvable');
 
+  // Never insert after the thank_you block (always last)
+  // If afterBlock is thank_you, insert before it instead
+  const afterPos = afterBlock.blockType === 'thank_you'
+    ? afterBlock.position - 1
+    : afterBlock.position;
+  const insertPos = afterPos + 1;
+
+  // Shift all blocks at insertPos or later up by 1
+  await db
+    .update(sessionBlocks)
+    .set({ position: sql`position + 1`, updatedAt: new Date() })
+    .where(
+      and(
+        eq(sessionBlocks.sessionId, sessionId),
+        sql`${sessionBlocks.position} >= ${insertPos}`
+      )
+    );
+
+  // Insert new block at insertPos
   const [block] = await db
     .insert(sessionBlocks)
     .values({
-      sessionPageId,
-      position,
+      sessionId,
+      position: insertPos,
       blockType,
       config: BLOCK_DEFAULTS[blockType],
       required: false,
@@ -106,10 +121,14 @@ export async function updateBlock(
 
 /**
  * Deletes a block, scoped by teamId.
+ * welcome and thank_you blocks cannot be deleted.
  */
 export async function deleteBlock(blockId: number, teamId: number): Promise<void> {
   const row = await getBlockWithSession(blockId);
   if (!row || row.teamId !== teamId) throw new Error('Bloc introuvable');
+  if (ANCHOR_BLOCK_TYPES.includes(row.block.blockType as BlockType)) {
+    throw new Error('Ce bloc ne peut pas être supprimé');
+  }
 
   await db.delete(sessionBlocks).where(eq(sessionBlocks.id, blockId));
 }
@@ -117,28 +136,40 @@ export async function deleteBlock(blockId: number, teamId: number): Promise<void
 // ─── Reorder ─────────────────────────────────────────────────────────────────
 
 /**
- * Reorders blocks within a page to match orderedBlockIds.
+ * Reorders blocks within a session to match orderedBlockIds.
  * Positions are renumbered 1…n.
+ * welcome must stay first, thank_you must stay last — caller is responsible.
  */
-export async function reorderBlocks(
-  sessionPageId: number,
+export async function reorderSessionBlocks(
+  sessionId: number,
   teamId: number,
   orderedBlockIds: number[]
 ): Promise<void> {
-  const pageTeamId = await getPageTeamId(sessionPageId);
-  if (pageTeamId !== teamId) throw new Error('Page introuvable');
+  const [session] = await db
+    .select()
+    .from(sessions)
+    .where(and(eq(sessions.id, sessionId), eq(sessions.teamId, teamId)))
+    .limit(1);
+  if (!session) throw new Error('Session introuvable');
 
   await Promise.all(
     orderedBlockIds.map((blockId, idx) =>
       db
         .update(sessionBlocks)
         .set({ position: idx + 1, updatedAt: new Date() })
-        .where(
-          and(
-            eq(sessionBlocks.id, blockId),
-            eq(sessionBlocks.sessionPageId, sessionPageId)
-          )
-        )
+        .where(and(eq(sessionBlocks.id, blockId), eq(sessionBlocks.sessionId, sessionId)))
     )
   );
+}
+
+/**
+ * Returns all blocks for a session ordered by position.
+ * Used internally by other repositories.
+ */
+export async function getBlocksBySession(sessionId: number): Promise<SessionBlock[]> {
+  return db
+    .select()
+    .from(sessionBlocks)
+    .where(eq(sessionBlocks.sessionId, sessionId))
+    .orderBy(asc(sessionBlocks.position));
 }

@@ -40,7 +40,6 @@ vi.mock('@/lib/db/drizzle', () => ({ db: mockDb }));
 
 vi.mock('@/lib/db/schema', () => ({
   sessions: {},
-  sessionPages: {},
   sessionBlocks: {},
 }));
 
@@ -57,17 +56,26 @@ vi.mock('@paralleldrive/cuid2', () => ({
 }));
 
 vi.mock('@/lib/domain/blocks', () => ({
+  ANCHOR_BLOCK_TYPES: ['welcome', 'thank_you'],
+  BLOCK_DEFAULTS: {
+    welcome:          { title: '', description: '', buttonText: 'Commencer' },
+    thank_you:        { title: 'Merci !', description: '' },
+    short_text:       { question: '', placeholder: '' },
+  },
   BLOCK_LABELS: {
-    short_text: 'Question courte',
-    long_text: 'Question longue',
-    mcq: 'Choix multiple',
-    likert: 'Échelle de Likert',
-    rating: 'Note',
-    nps: 'NPS',
-    card_sort: 'Tri de carte',
-    matrix: 'Matrice',
+    welcome:          'Accueil',
+    thank_you:        'Remerciement',
+    content:          'Contenu',
+    short_text:       'Question courte',
+    long_text:        'Question longue',
+    mcq:              'Choix multiple',
+    likert:           'Échelle de Likert',
+    rating:           'Note',
+    nps:              'NPS',
+    card_sort:        'Tri de carte',
+    matrix:           'Matrice',
     first_impression: 'Premier regard',
-    prototype_task: 'Tâche prototype',
+    prototype_task:   'Tâche prototype',
   },
 }));
 
@@ -87,25 +95,18 @@ describe('createSession', () => {
       title: 'Nouvelle session', status: 'draft',
       createdAt: new Date(), updatedAt: new Date(),
     };
-    const fakePage = {
-      id: 100, sessionId: 1, position: 2,
-      title: 'Page 1', pageType: 'question',
-    };
-    // insert returns: [session], [], [questionPage], [], []
+    // insert returns: [session], [] (session + single batch insert for 3 blocks = 2 inserts)
     insertReturns.push(
       [fakeSession], // session
-      [],            // intro page (no .returning used, but mock chain needs something)
-      [fakePage],    // question page
-      [],            // block
-      [],            // end page
+      [],            // batch insert: welcome + short_text + thank_you blocks
     );
 
     const { createSession } = await import('./sessions');
     const result = await createSession(10, 5);
 
     expect(result).toEqual(fakeSession);
-    // session + 3 pages + 1 block = 5 inserts
-    expect(mockDb.insert).toHaveBeenCalledTimes(5);
+    // 1 session insert + 1 batch blocks insert = 2 inserts
+    expect(mockDb.insert).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -148,7 +149,7 @@ describe('getSessionsByProject', () => {
   });
 });
 
-describe('getSessionWithPages', () => {
+describe('getSessionWithBlocks', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.resetModules();
@@ -156,88 +157,27 @@ describe('getSessionWithPages', () => {
 
   it('returns null when session not found', async () => {
     mockLimit.mockResolvedValueOnce([]); // no session
-    const { getSessionWithPages } = await import('./sessions');
-    const result = await getSessionWithPages(99, 10);
+    const { getSessionWithBlocks } = await import('./sessions');
+    const result = await getSessionWithBlocks(99, 10);
     expect(result).toBeNull();
   });
 
-  it('returns session with empty pages when session exists but has no pages', async () => {
+  it('returns session with empty blocks when session exists but has no blocks', async () => {
     const fakeSession = { id: 1, teamId: 10, projectId: 5, title: 'S1', status: 'draft' };
     mockLimit.mockResolvedValueOnce([fakeSession]);
-    // Only one mockOrderBy call: pages → [] (blocks query is skipped when pages is empty)
     mockOrderBy.mockResolvedValueOnce([]);
 
-    const { getSessionWithPages } = await import('./sessions');
-    const result = await getSessionWithPages(1, 10);
+    const { getSessionWithBlocks } = await import('./sessions');
+    const result = await getSessionWithBlocks(1, 10);
 
     expect(result).not.toBeNull();
     expect(result?.id).toBe(1);
-    expect(result?.pages).toEqual([]);
+    expect(result?.blocks).toEqual([]);
   });
 });
 
-describe('addPage', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    insertCallCount = 0;
-    insertReturns.length = 0;
-    vi.resetModules();
-  });
-
-  it('throws when session not found', async () => {
-    mockLimit.mockResolvedValueOnce([]); // session not found
-    const { addPage } = await import('./sessions');
-    await expect(addPage(1, 10, 100)).rejects.toThrow('Session not found');
-  });
-
-  it('inserts one new page record when adding a page', async () => {
-    const fakeSession = { id: 1, teamId: 10, projectId: 5, title: 'S1', status: 'draft' };
-    const introPage = { id: 10, sessionId: 1, position: 1, title: 'Introduction', pageType: 'intro' };
-    const questionPage = { id: 20, sessionId: 1, position: 2, title: 'Page 1', pageType: 'question' };
-    const endPage = { id: 30, sessionId: 1, position: 3, title: 'Fin', pageType: 'end' };
-    const newPage = { id: 40, sessionId: 1, position: 9999, title: 'Page 2', pageType: 'question' };
-    const currentPages = [introPage, questionPage, endPage];
-    const finalPages = [introPage, questionPage, newPage, endPage];
-
-    mockLimit.mockResolvedValue([fakeSession]);
-    mockOrderBy.mockResolvedValue(currentPages).mockResolvedValueOnce(currentPages).mockResolvedValueOnce(finalPages);
-
-    insertReturns.push([newPage]);
-    insertCallCount = 0;
-
-    const { addPage } = await import('./sessions');
-    await addPage(1, 10, 20);
-
-    // Exactly one insert: the new page
-    expect(mockDb.insert).toHaveBeenCalledTimes(1);
-    // At least one update (renumber): verifies the renumbering path was reached
-    expect(mockDb.update).toHaveBeenCalled();
-  });
-});
-
-describe('reorderPages', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    vi.resetModules();
-  });
-
-  it('throws when session not found', async () => {
-    mockLimit.mockResolvedValueOnce([]);
-    const { reorderPages } = await import('./sessions');
-    await expect(reorderPages(1, 10, [10, 20, 30])).rejects.toThrow('Session not found');
-  });
-
-  it('updates each page position according to orderedPageIds order', async () => {
-    const fakeSession = { id: 1, teamId: 10, projectId: 5 };
-    mockLimit.mockResolvedValueOnce([fakeSession]);
-
-    const { reorderPages } = await import('./sessions');
-    await reorderPages(1, 10, [10, 20, 30]);
-
-    // Three pages → three update calls
-    expect(mockDb.update).toHaveBeenCalledTimes(3);
-  });
-});
+// addPage and reorderPages removed — flat block model (no more pages)
+// Block operations are tested in blocks.test.ts
 
 // ─── publishSession ───────────────────────────────────────────────────────────
 
@@ -257,13 +197,11 @@ describe('publishSession', () => {
 
   it('throws with validationIssues when a block has an empty question', async () => {
     const fakeSession = { id: 1, teamId: 10, projectId: 5, title: 'S1', status: 'draft', sessionToken: null };
-    const questionPage = { id: 20, sessionId: 1, position: 2, title: 'Page 1', pageType: 'question' };
-    const emptyBlock = { id: 1, sessionPageId: 20, blockType: 'short_text', config: { question: '' }, required: false, position: 1 };
+    // Flat model: welcome + emptyBlock + thank_you in a single blocks array
+    const emptyBlock = { id: 2, sessionId: 1, blockType: 'short_text', config: { question: '' }, required: false, position: 2 };
 
     mockLimit.mockResolvedValueOnce([fakeSession]);
-    mockOrderBy
-      .mockResolvedValueOnce([questionPage])
-      .mockResolvedValueOnce([emptyBlock]);
+    mockOrderBy.mockResolvedValueOnce([emptyBlock]);
 
     const { publishSession } = await import('./sessions');
     const err = await publishSession(1, 10).catch((e: unknown) => e);
@@ -276,13 +214,10 @@ describe('publishSession', () => {
 
   it('publishes and returns a token when all blocks are valid', async () => {
     const fakeSession = { id: 1, teamId: 10, projectId: 5, title: 'S1', status: 'draft', sessionToken: null };
-    const questionPage = { id: 20, sessionId: 1, position: 2, title: 'Page 1', pageType: 'question' };
-    const validBlock = { id: 1, sessionPageId: 20, blockType: 'short_text', config: { question: 'Votre nom ?' }, required: false, position: 1 };
+    const validBlock = { id: 2, sessionId: 1, blockType: 'short_text', config: { question: 'Votre nom ?' }, required: false, position: 2 };
 
     mockLimit.mockResolvedValueOnce([fakeSession]);
-    mockOrderBy
-      .mockResolvedValueOnce([questionPage])
-      .mockResolvedValueOnce([validBlock]);
+    mockOrderBy.mockResolvedValueOnce([validBlock]);
 
     const { publishSession } = await import('./sessions');
     const token = await publishSession(1, 10);
@@ -297,8 +232,7 @@ describe('publishSession', () => {
     const fakeSession = { id: 1, teamId: 10, status: 'published', sessionToken: existingToken };
 
     mockLimit.mockResolvedValueOnce([fakeSession]);
-    // Only one mockOrderBy call: pages → [] (early return before blocks query)
-    mockOrderBy.mockResolvedValueOnce([]);
+    mockOrderBy.mockResolvedValueOnce([]); // blocks (empty is fine — early return via token check)
 
     const { publishSession } = await import('./sessions');
     const token = await publishSession(1, 10);
@@ -309,13 +243,10 @@ describe('publishSession', () => {
 
   it('throws validationIssues when first_impression block has no imageUrl', async () => {
     const fakeSession = { id: 1, teamId: 10, projectId: 5, title: 'S1', status: 'draft', sessionToken: null };
-    const questionPage = { id: 20, sessionId: 1, position: 2, title: 'Page 1', pageType: 'question' };
-    const block = { id: 1, sessionPageId: 20, blockType: 'first_impression', config: { imageUrl: '', duration: 5, instructions: '' }, required: false, position: 1 };
+    const block = { id: 2, sessionId: 1, blockType: 'first_impression', config: { imageUrl: '', duration: 5, instructions: '' }, required: false, position: 2 };
 
     mockLimit.mockResolvedValueOnce([fakeSession]);
-    mockOrderBy
-      .mockResolvedValueOnce([questionPage])
-      .mockResolvedValueOnce([block]);
+    mockOrderBy.mockResolvedValueOnce([block]);
 
     const { publishSession } = await import('./sessions');
     const err = await publishSession(1, 10).catch((e: unknown) => e);
@@ -340,31 +271,29 @@ describe('getSessionByToken', () => {
     expect(result).toBeNull();
   });
 
-  it('returns session with pages when token is valid', async () => {
+  it('returns session with blocks when token is valid', async () => {
     const fakeSession = { id: 1, teamId: 10, status: 'published', sessionToken: 'valid-token', title: 'Test' };
-    const page = { id: 10, sessionId: 1, position: 1, title: 'Intro', pageType: 'intro' };
+    const block = { id: 10, sessionId: 1, position: 1, blockType: 'welcome', config: {}, required: false };
 
     mockLimit.mockResolvedValueOnce([fakeSession]);
-    mockOrderBy
-      .mockResolvedValueOnce([page])
-      .mockResolvedValueOnce([]); // blocks
+    mockOrderBy.mockResolvedValueOnce([block]);
 
     const { getSessionByToken } = await import('./sessions');
     const result = await getSessionByToken('valid-token');
 
     expect(result).not.toBeNull();
     expect(result?.sessionToken).toBe('valid-token');
-    expect(result?.pages).toHaveLength(1);
+    expect(result?.blocks).toHaveLength(1);
   });
 
-  it('returns session with empty pages when no pages exist', async () => {
+  it('returns session with empty blocks when no blocks exist', async () => {
     const fakeSession = { id: 2, status: 'published', sessionToken: 'tok', title: 'Empty' };
     mockLimit.mockResolvedValueOnce([fakeSession]);
-    mockOrderBy.mockResolvedValueOnce([]); // no pages → no block query
+    mockOrderBy.mockResolvedValueOnce([]);
 
     const { getSessionByToken } = await import('./sessions');
     const result = await getSessionByToken('tok');
 
-    expect(result?.pages).toEqual([]);
+    expect(result?.blocks).toEqual([]);
   });
 });
