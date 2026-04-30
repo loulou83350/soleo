@@ -28,10 +28,10 @@ export function BubbleToolbar({ editor }: Props) {
     <BubbleMenu
       editor={editor}
       options={{
-        placement: 'top',
-        // Generous gap so the toolbar doesn't visually clip the line above
-        // the selection. Auto-flips below when there's not enough room above.
-        offset: 16,
+        // Show below the selection so the toolbar never overlaps the
+        // title input or other UI sitting above the editor.
+        placement: 'bottom',
+        offset: 12,
       }}
       shouldShow={({ editor: ed, from, to }) => {
         // Hide when nothing is selected
