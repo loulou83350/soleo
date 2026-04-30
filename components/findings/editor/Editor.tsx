@@ -13,6 +13,7 @@ import {
 } from './extensions/SlashCommand';
 import { SlashCommandMenu, type SlashCommandMenuRef } from './SlashCommandMenu';
 import { CitationPicker } from './CitationPicker';
+import { BubbleToolbar } from './BubbleToolbar';
 import { markdownToHtml, htmlToMarkdown } from './markdown-bridge';
 import type { CitationSource } from '@/components/findings/CitationPill';
 
@@ -128,6 +129,7 @@ export function Editor({ initialMarkdown, sources, onChange, placeholder }: Prop
   return (
     <>
       <EditorContent editor={editor} />
+      <BubbleToolbar editor={editor} />
       <CitationPicker
         open={pickerOpen}
         sources={sources}
