@@ -91,13 +91,14 @@ interface FigmaFile {
 /**
  * Fetch all top-level frames from a Figma file.
  * If pageId is provided, only frames from that page are returned.
- * Requires FIGMA_ACCESS_TOKEN environment variable.
+ * If tokenOverride is provided, it's used instead of FIGMA_ACCESS_TOKEN env var.
  */
 export async function fetchFigmaFrames(
   fileKey: string,
-  pageId?: string
+  pageId?: string,
+  tokenOverride?: string
 ): Promise<FigmaFrame[]> {
-  const token = process.env.FIGMA_ACCESS_TOKEN;
+  const token = tokenOverride ?? process.env.FIGMA_ACCESS_TOKEN;
   if (!token) {
     throw new Error('FIGMA_ACCESS_TOKEN non configuré. Ajoutez-le dans votre .env.local');
   }
@@ -172,9 +173,10 @@ function collectFrames(node: FigmaNode, frames: FigmaFrame[], prefix = ''): void
  */
 export async function fetchFigmaThumbnails(
   fileKey: string,
-  nodeIds: string[]
+  nodeIds: string[],
+  tokenOverride?: string
 ): Promise<Record<string, string>> {
-  const token = process.env.FIGMA_ACCESS_TOKEN;
+  const token = tokenOverride ?? process.env.FIGMA_ACCESS_TOKEN;
   if (!token || nodeIds.length === 0) return {};
 
   const ids = nodeIds.join(',');

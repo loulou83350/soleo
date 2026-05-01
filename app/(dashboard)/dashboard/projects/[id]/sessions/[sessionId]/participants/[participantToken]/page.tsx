@@ -12,6 +12,12 @@ import { listTeamTags, listTagsForResponses } from '@/lib/repositories/tags';
 import { listPinnedResponseIdsForSession } from '@/lib/repositories/findings';
 import { getTurnsForResponses } from '@/lib/repositories/ai-followup';
 import {
+  parseFigmaProtoUrl,
+  fetchFigmaFrames,
+  fetchFigmaThumbnails,
+} from '@/lib/figma/api';
+import { resolveFigmaToken } from '@/lib/figma/auth';
+import {
   getActiveProvider,
   getAvailableProviders,
 } from '@/lib/ai/providers';
@@ -82,6 +88,13 @@ export default async function ParticipantDetailPage({ params }: Props) {
         )
       : null;
 
+  // Story 9.2 — pre-fetch frame lookup per prototype_task block (best-effort, parallel)
+  const frameLookups = await buildFrameLookups({
+    userId: user.id,
+    blocks: session.blocks,
+    responseMap,
+  });
+
   // Order blocks by position; skip pure-anchor blocks for the answer list
   const orderedBlocks = [...session.blocks].sort((a, b) => a.position - b.position);
   const answerBlocks = orderedBlocks.filter(
@@ -149,6 +162,7 @@ export default async function ParticipantDetailPage({ params }: Props) {
                   : [];
               const turns =
                 responseId != null ? turnsByResponse.get(responseId) ?? [] : [];
+              const frameLookup = frameLookups.get(block.id);
               return (
                 <BlockAnswer
                   key={block.id}
@@ -162,6 +176,7 @@ export default async function ParticipantDetailPage({ params }: Props) {
                   availableProviders={availableProviders}
                   activeProvider={activeProvider}
                   followupTurns={turns}
+                  frameLookup={frameLookup}
                   context={{
                     projectId,
                     sessionId,
@@ -190,6 +205,7 @@ function BlockAnswer({
   availableProviders,
   activeProvider,
   followupTurns,
+  frameLookup,
   context,
 }: {
   block: SessionBlock;
@@ -202,6 +218,7 @@ function BlockAnswer({
   availableProviders: ReturnType<typeof getAvailableProviders>;
   activeProvider: ReturnType<typeof getActiveProvider>;
   followupTurns: AIFollowupTurn[];
+  frameLookup?: Map<string, { name?: string; thumbnailUrl?: string }>;
   context: { projectId: number; sessionId: number; participantToken: string };
 }) {
   const config = (block.config ?? {}) as Record<string, unknown>;
@@ -241,7 +258,7 @@ function BlockAnswer({
           turns={followupTurns}
         />
       ) : (
-        <ResponseRenderer block={block} value={value} />
+        <ResponseRenderer block={block} value={value} frameLookup={frameLookup} />
       )}
 
       {/* Tag editor + pin button — only when there's an actual response row */}
@@ -278,4 +295,67 @@ function blockTypeLabel(type: string): string {
     prototype_task: 'Tâche prototype',
   };
   return labels[type] ?? type;
+}
+
+// ─── Story 9.2 — frame lookup builder ────────────────────────────────────────
+//
+// For every prototype_task block with navigations, fetch the Figma frame names
+// + thumbnails for the unique node IDs visited. Returns a map blockId →
+// (nodeId → { name, thumbnailUrl }) ready to feed <PrototypeTaskResponse/>.
+//
+// All Figma calls are best-effort + parallel: a single failed fetch never
+// breaks the page, the timeline just falls back to "Écran indisponible".
+
+type FrameLookup = Map<string, { name?: string; thumbnailUrl?: string }>;
+
+async function buildFrameLookups(args: {
+  userId: number;
+  blocks: SessionBlock[];
+  responseMap: Map<number, unknown>;
+}): Promise<Map<number, FrameLookup>> {
+  const out = new Map<number, FrameLookup>();
+
+  // Token resolution happens once for the whole page render
+  const figmaToken = await resolveFigmaToken(args.userId);
+  if (!figmaToken) return out; // no token → no thumbnails, just nodeId fallback
+
+  const tasks: Array<Promise<void>> = [];
+
+  for (const block of args.blocks) {
+    if (block.blockType !== 'prototype_task') continue;
+    const value = args.responseMap.get(block.id);
+    if (!value || typeof value !== 'object') continue;
+    const navs =
+      ((value as { navigations?: Array<{ nodeId: string; at: number }> })
+        .navigations ?? []);
+    if (navs.length === 0) continue;
+
+    const cfg = (block.config ?? {}) as { url?: string };
+    if (!cfg.url) continue;
+    const parsed = parseFigmaProtoUrl(cfg.url);
+    if (!parsed) continue;
+
+    // De-duplicate node IDs (a participant can revisit the same screen)
+    const uniqueIds = Array.from(new Set(navs.map((n) => n.nodeId)));
+
+    tasks.push(
+      Promise.all([
+        fetchFigmaFrames(parsed.fileKey, undefined, figmaToken).catch(() => []),
+        fetchFigmaThumbnails(parsed.fileKey, uniqueIds, figmaToken).catch(() => ({} as Record<string, string>)),
+      ]).then(([frames, thumbs]) => {
+        const map: FrameLookup = new Map();
+        for (const id of uniqueIds) {
+          const frame = frames.find((f) => f.id === id);
+          map.set(id, {
+            name: frame?.name,
+            thumbnailUrl: thumbs[id],
+          });
+        }
+        out.set(block.id, map);
+      })
+    );
+  }
+
+  await Promise.all(tasks);
+  return out;
 }

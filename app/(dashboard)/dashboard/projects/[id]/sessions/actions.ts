@@ -29,7 +29,6 @@ import { addBlock, updateBlock, deleteBlock } from '@/lib/repositories/blocks';
 import { uploadBlockAsset } from '@/lib/supabase/storage';
 import { parseFigmaProtoUrl, fetchFigmaFrames, type FigmaFrame } from '@/lib/figma/api';
 import { db } from '@/lib/db/drizzle';
-import { teams, teamMembers } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
 import type { ActionResult, PublishResult, ValidationIssue } from '@/lib/domain/types';
 import type { SessionBlock } from '@/lib/db/schema';
@@ -331,19 +330,8 @@ export async function fetchFigmaFramesAction(
   const user = await getUser();
   if (!user) return { success: false, error: 'Non authentifié' };
 
-  // Resolve Figma token: team token (DB) > env var (dev fallback)
-  let figmaToken: string | null = null;
-
-  const teamMember = await db.query.teamMembers.findFirst({
-    where: eq(teamMembers.userId, user.id),
-    with: { team: true },
-  });
-
-  if (teamMember?.team?.figmaAccessToken) {
-    figmaToken = teamMember.team.figmaAccessToken;
-  } else if (process.env.FIGMA_ACCESS_TOKEN) {
-    figmaToken = process.env.FIGMA_ACCESS_TOKEN;
-  }
+  const { resolveFigmaToken } = await import('@/lib/figma/auth');
+  const figmaToken = await resolveFigmaToken(user.id);
 
   if (!figmaToken) {
     return {
@@ -358,11 +346,8 @@ export async function fetchFigmaFramesAction(
     return { success: false, error: 'URL Figma invalide. Collez un lien de prototype Figma.' };
   }
 
-  // Temporarily override env for fetchFigmaFrames (cleaner than threading token everywhere)
-  const prev = process.env.FIGMA_ACCESS_TOKEN;
-  process.env.FIGMA_ACCESS_TOKEN = figmaToken;
   try {
-    const frames = await fetchFigmaFrames(parsed.fileKey, parsed.pageId);
+    const frames = await fetchFigmaFrames(parsed.fileKey, parsed.pageId, figmaToken);
 
     // Story 9.1 — best-effort enrich with thumbnails (graceful degrade on failure)
     if (frames.length > 0) {
@@ -370,7 +355,8 @@ export async function fetchFigmaFramesAction(
         const { fetchFigmaThumbnails } = await import('@/lib/figma/api');
         const thumbnails = await fetchFigmaThumbnails(
           parsed.fileKey,
-          frames.map((f) => f.id)
+          frames.map((f) => f.id),
+          figmaToken
         );
         for (const f of frames) {
           if (thumbnails[f.id]) f.thumbnailUrl = thumbnails[f.id];
@@ -383,7 +369,5 @@ export async function fetchFigmaFramesAction(
     return { success: true, data: frames };
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : 'Erreur Figma API' };
-  } finally {
-    process.env.FIGMA_ACCESS_TOKEN = prev;
   }
 }

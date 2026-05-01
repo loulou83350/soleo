@@ -1,14 +1,19 @@
 import type { SessionBlock } from '@/lib/db/schema';
 import { formatDuration } from '@/lib/utils';
 
+// Story 9.2 — frame lookup for prototype timeline (nodeId → name + thumbnail)
+export type FrameLookup = Map<string, { name?: string; thumbnailUrl?: string }>;
+
 // ─── Renderer entry ──────────────────────────────────────────────────────────
 
 interface ResponseRendererProps {
   block: SessionBlock;
   value: unknown;
+  /** Optional Figma frame lookup for prototype_task timelines (Story 9.2) */
+  frameLookup?: FrameLookup;
 }
 
-export function ResponseRenderer({ block, value }: ResponseRendererProps) {
+export function ResponseRenderer({ block, value, frameLookup }: ResponseRendererProps) {
   const config = (block.config ?? {}) as Record<string, unknown>;
 
   // No answer recorded → either skipped, no-op block (welcome/thank_you), or missing
@@ -38,7 +43,7 @@ export function ResponseRenderer({ block, value }: ResponseRendererProps) {
     case 'first_impression':
       return <FirstImpressionResponse />;
     case 'prototype_task':
-      return <PrototypeTaskResponse value={value} />;
+      return <PrototypeTaskResponse value={value} frameLookup={frameLookup} />;
     default:
       return <NoAnswer />;
   }
@@ -172,7 +177,13 @@ interface PrototypeResult {
   navigations?: Array<{ nodeId: string; at: number }>;
 }
 
-function PrototypeTaskResponse({ value }: { value: unknown }) {
+function PrototypeTaskResponse({
+  value,
+  frameLookup,
+}: {
+  value: unknown;
+  frameLookup?: FrameLookup;
+}) {
   const r = (value ?? {}) as PrototypeResult;
   const navigations = r.navigations ?? [];
 
@@ -213,20 +224,51 @@ function PrototypeTaskResponse({ value }: { value: unknown }) {
         )}
       </div>
 
-      {/* Navigation timeline (Story 4.4 data) */}
+      {/* Navigation timeline (Story 4.4 data + Story 9.2 visual upgrade) */}
       {navigations.length > 0 && (
         <details className="text-xs">
-          <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
+          <summary className="cursor-pointer text-muted-foreground hover:text-foreground select-none">
             Voir la timeline des navigations
           </summary>
-          <ol className="mt-2 space-y-1 pl-4 border-l-2 border-border">
+          <ol className="mt-3 space-y-3 pl-4 border-l-2 border-border">
             {navigations.map((nav, idx) => {
               const startAt = navigations[0]?.at ?? nav.at;
               const elapsedMs = nav.at - startAt;
+              const meta = frameLookup?.get(nav.nodeId);
+              const frameName = meta?.name;
+              const thumbnailUrl = meta?.thumbnailUrl;
               return (
-                <li key={idx} className="text-muted-foreground tabular-nums">
-                  <span className="text-muted-foreground/60">+{Math.round(elapsedMs / 1000)}s</span>{' '}
-                  <span className="text-foreground/80">{nav.nodeId}</span>
+                <li
+                  key={idx}
+                  className="flex items-center gap-3"
+                  title={nav.nodeId}
+                >
+                  {/* Thumbnail (or placeholder when unavailable) */}
+                  {thumbnailUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={thumbnailUrl}
+                      alt=""
+                      className="h-12 w-16 object-contain rounded border border-border bg-background shrink-0"
+                      loading="lazy"
+                    />
+                  ) : (
+                    <div className="h-12 w-16 rounded border border-border bg-muted shrink-0 flex items-center justify-center text-muted-foreground/50 text-xs">
+                      ⊟
+                    </div>
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm text-foreground truncate">
+                      {frameName ?? (
+                        <span className="text-muted-foreground italic">
+                          Écran indisponible
+                        </span>
+                      )}
+                    </p>
+                    <p className="text-xs text-muted-foreground tabular-nums">
+                      +{Math.round(elapsedMs / 1000)}s
+                    </p>
+                  </div>
                 </li>
               );
             })}

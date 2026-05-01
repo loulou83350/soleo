@@ -9,7 +9,7 @@ Source de vérité : Notion `Soleo — Project Tracker` → database "Stories" �
 | ID  | Titre                                                            | Priority | Statut    | Lié à        |
 |-----|------------------------------------------------------------------|----------|-----------|--------------|
 | 9.1 | Figma frame thumbnails in the Builder picker                     | Medium   | ✅ Done   | Story 3.1    |
-| 9.2 | Visual prototype timeline in the response detail                 | Medium   | ⏳ To Do  | Story 5.2    |
+| 9.2 | Visual prototype timeline in the response detail                 | Medium   | ✅ Done   | Story 5.2    |
 | 9.3 | Unit tests for AI helpers (followup, usage, repos)               | Low      | ⏳ To Do  | Epic 7       |
 | 9.4 | Graceful fallback if Figma iframe fails to load                  | Low      | ⏳ To Do  | Story 4.x    |
 
