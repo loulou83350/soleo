@@ -14,6 +14,7 @@ import {
 import type { InsightTag, TagSource } from '@/lib/db/schema';
 import type { AIProvider, TagSuggestion } from '@/lib/ai/providers';
 import { track } from '@/lib/analytics/track';
+import { clientAITagSuggestEnabled } from '@/lib/ai/flags-client';
 
 interface AttachedTag {
   tag: InsightTag;
@@ -224,7 +225,7 @@ export function TagEditor({
           Tag
         </button>
 
-        {availableProviders.length > 0 && (
+        {availableProviders.length > 0 && clientAITagSuggestEnabled() && (
           <button
             type="button"
             onClick={handleSuggest}

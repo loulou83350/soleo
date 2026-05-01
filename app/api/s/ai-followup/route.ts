@@ -31,6 +31,7 @@ import {
   streamFollowupQuestion,
   type FollowupTurn,
 } from '@/lib/ai/followup';
+import { isAIFollowupEnabled } from '@/lib/ai/flags';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -49,6 +50,11 @@ function sseEncoder() {
 }
 
 export async function POST(req: NextRequest) {
+  // Feature flag — disabled features should not consume tokens or DB rows.
+  if (!isAIFollowupEnabled()) {
+    return new Response('AI follow-up feature disabled', { status: 503 });
+  }
+
   let body: Body;
   try {
     body = (await req.json()) as Body;

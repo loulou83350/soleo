@@ -1,14 +1,17 @@
-# Epic 9 — Polish & UX Backlog
+# Epic 9 — Polish & UX (Rolling Backlog)
 
-Stories qui améliorent l'expérience visuelle ou le confort d'usage de features existantes, **sans changement fonctionnel**. Le user partagera des designs Figma au cas par cas pour le rendu visuel — le comportement reste celui décrit dans les ACs.
+**Backlog continu, pas une phase.** Les stories Polish s'accumulent au fil du projet à mesure que tu remontes des feedbacks (UX bugs visuels, petites frictions, polish d'écrans existants). Elles sont prises au coup-par-coup entre deux Epics ou en parallèle, selon priorité et fenêtres dispo.
+
+**Règle** : pas de changement fonctionnel sur le comportement existant — uniquement amélioration visuelle ou ergonomique. Le user partage les designs Figma au cas par cas pour le rendu.
 
 Source de vérité : Notion `Soleo — Project Tracker` → database "Stories" → Epic 9 — Polish & UX.
 
 | ID  | Titre                                                            | Priority | Statut    | Lié à        |
 |-----|------------------------------------------------------------------|----------|-----------|--------------|
-| 9.1 | Figma frame thumbnails in the Builder picker                     | Medium   | ⏳ To Do  | Story 3.1    |
+| 9.1 | Figma frame thumbnails in the Builder picker                     | Medium   | ✅ Done   | Story 3.1    |
 | 9.2 | Visual prototype timeline in the response detail                 | Medium   | ⏳ To Do  | Story 5.2    |
 | 9.3 | Unit tests for AI helpers (followup, usage, repos)               | Low      | ⏳ To Do  | Epic 7       |
+| 9.4 | Graceful fallback if Figma iframe fails to load                  | Low      | ⏳ To Do  | Story 4.x    |
 
 ---
 
@@ -126,3 +129,39 @@ Les 4 fichiers nouveaux d'Epic 7 n'ont **pas de tests automatisés** :
 ### Hors-scope
 - Tests E2E du flow participant complet (Playwright/Cypress) — chantier dédié
 - Tests de l'intégration OpenAI réelle (mock seulement)
+
+---
+
+## Story 9.4 — Fallback gracieux si l'iframe Figma ne charge pas
+
+### Contexte
+Sur certains setups (cookies Figma périmés, extensions navigateur, Arc Boosts), l'iframe `embed.figma.com` peut renvoyer un 500 ou ne jamais déclencher `onLoad`. Aujourd'hui le participant voit juste un cadre gris/error sans guidance — il quitte la session.
+
+Le code (`app/s/[token]/ParticipantBlock.tsx:534-535`) strippe déjà les session tokens stale, mais le 500 peut venir d'un état navigateur que Soleo ne contrôle pas (notamment Arc browser en mode normal vs privé).
+
+### Acceptance Criteria
+
+**Given** a participant opens a session with a `prototype_task` block
+**When** the Figma iframe doesn't fire `onLoad` within 5s OR fires `onError`
+**Then** an alert card appears below the iframe with:
+  - "Le prototype ne se charge pas correctement."
+  - Suggestion: "Essayez en navigation privée ou videz vos cookies Figma."
+  - Button: "Ouvrir le prototype dans un nouvel onglet" (target=_blank vers l'URL prototype originale)
+  - Button: "Marquer comme terminé sans interagir" (skip the task gracefully)
+
+---
+
+**Given** the iframe loads correctly
+**When** time passes
+**Then** the alert never appears (we only show on actual failure detection)
+
+### Implémentation
+- Ajouter un `useState<'loading' | 'loaded' | 'error'>` à `<PrototypeTaskBlock/>`
+- `setTimeout` 5s qui fait passer à `error` si on est encore `loading`
+- `onLoad` du iframe → `setLoaded`
+- `onError` du iframe → `setError`
+- Quand `error` : afficher `<FigmaLoadFallback/>` au-dessus de l'iframe
+
+### Hors-scope
+- Pas de retry automatique de l'iframe (l'utilisateur fait l'action manuellement)
+- Pas de détection navigateur (Arc / Chrome / etc.) — message générique

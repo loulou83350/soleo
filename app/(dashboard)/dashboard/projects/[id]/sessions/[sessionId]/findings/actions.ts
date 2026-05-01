@@ -88,6 +88,10 @@ export async function generateFindingDraftAction(
   sessionId: number,
   providerOverride?: AIProvider
 ): Promise<ActionResult<{ markdown: string; findingId: number }>> {
+  const { isAIFindingsEnabled } = await import('@/lib/ai/flags');
+  if (!isAIFindingsEnabled()) {
+    return { success: false, error: 'Génération IA désactivée' };
+  }
   const user = await getUser();
   if (!user) return { success: false, error: 'Non authentifié' };
   const userWithTeam = await getUserWithTeam(user.id);

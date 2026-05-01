@@ -119,6 +119,10 @@ export async function suggestTagsAction(
   responseId: number,
   providerOverride?: AIProvider
 ): Promise<ActionResult<{ suggestions: TagSuggestion[] }>> {
+  const { isAITagSuggestEnabled } = await import('@/lib/ai/flags');
+  if (!isAITagSuggestEnabled()) {
+    return { success: false, error: 'Suggestion IA désactivée' };
+  }
   const user = await getUser();
   if (!user) return { success: false, error: 'Non authentifié' };
   const userWithTeam = await getUserWithTeam(user.id);

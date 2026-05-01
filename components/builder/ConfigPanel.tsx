@@ -657,12 +657,25 @@ function PrototypeTaskForm({ config, onChange }: { config: PrototypeTaskConfig; 
         <div>
           <Label>Écran de fin</Label>
 
-          {/* Selected frame display */}
+          {/* Selected frame display (Story 9.1 — show thumbnail) */}
           {config.goalNodeId && selectedFrame ? (
-            <div className="flex items-center gap-2 mt-1 px-3 py-2 bg-muted/50 border border-border rounded-lg">
+            <div
+              className="flex items-center gap-3 mt-1 px-3 py-2 bg-muted/50 border border-border rounded-lg"
+              title={selectedFrame.id}
+            >
+              {selectedFrame.thumbnailUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={selectedFrame.thumbnailUrl}
+                  alt=""
+                  className="h-10 w-12 object-contain rounded border border-border bg-background shrink-0"
+                  loading="lazy"
+                />
+              ) : (
+                <div className="h-10 w-12 rounded border border-border bg-muted shrink-0" />
+              )}
               <div className="flex-1 min-w-0">
                 <p className="text-xs font-medium text-foreground truncate">{selectedFrame.name}</p>
-                <p className="text-[10px] text-muted-foreground font-mono">{selectedFrame.id}</p>
               </div>
               <button
                 type="button"
@@ -744,17 +757,30 @@ function PrototypeTaskForm({ config, onChange }: { config: PrototypeTaskConfig; 
                       autoFocus
                     />
                   </div>
-                  <ul className="max-h-48 overflow-y-auto">
+                  <ul className="max-h-72 overflow-y-auto">
                     {filteredFrames.map((frame) => (
                       <li key={frame.id}>
                         <button
                           type="button"
                           onClick={() => selectFrame(frame)}
-                          className={`w-full text-left px-3 py-2 text-xs hover:bg-muted transition-colors flex items-center justify-between gap-2 ${
+                          title={frame.id}
+                          className={`w-full text-left px-3 py-2 text-xs hover:bg-muted transition-colors flex items-center gap-2 ${
                             config.goalNodeId === frame.id ? 'bg-muted font-medium' : ''
                           }`}
                         >
-                          <span className="truncate">{frame.name}</span>
+                          {/* Story 9.1 — small thumbnail next to the name */}
+                          {frame.thumbnailUrl ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              src={frame.thumbnailUrl}
+                              alt=""
+                              className="h-8 w-10 object-contain rounded border border-border bg-background shrink-0"
+                              loading="lazy"
+                            />
+                          ) : (
+                            <div className="h-8 w-10 rounded border border-border bg-muted shrink-0" />
+                          )}
+                          <span className="truncate flex-1">{frame.name}</span>
                           {config.goalNodeId === frame.id && (
                             <Check className="h-3.5 w-3.5 text-foreground shrink-0" />
                           )}

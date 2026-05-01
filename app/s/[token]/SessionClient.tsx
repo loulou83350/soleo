@@ -20,6 +20,7 @@ import {
   streamFollowup,
   submitFollowupAnswer,
 } from '@/lib/ai/followup-client';
+import { clientAIFollowupEnabled } from '@/lib/ai/flags-client';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -279,6 +280,7 @@ export function SessionClient({ sessionToken, session, gateConfig }: SessionClie
         if (
           isOpenText &&
           cfg.aiFollowUp &&
+          clientAIFollowupEnabled() &&
           typeof value === 'string' &&
           value.trim().length > 0
         ) {

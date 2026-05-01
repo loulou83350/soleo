@@ -15,6 +15,7 @@ import {
 import type { SessionFinding } from '@/lib/db/schema';
 import type { AIProvider } from '@/lib/ai/providers';
 import { track } from '@/lib/analytics/track';
+import { clientAIFindingsEnabled } from '@/lib/ai/flags-client';
 
 interface Props {
   finding: SessionFinding;
@@ -157,7 +158,7 @@ export function FindingsEditor({
 
         <div className="flex items-center gap-2">
           {/* AI assist — secondary, ghost button */}
-          {availableProviders.length > 0 && (
+          {availableProviders.length > 0 && clientAIFindingsEnabled() && (
             <>
               <Button
                 type="button"

@@ -97,7 +97,8 @@ export async function saveBlockResponseAction(
 
     // Story 5.3 — auto-tagging hook (off by default).
     // Runs in the background, never blocks the participant flow.
-    if (process.env.AI_AUTO_TAG === 'true') {
+    const { isAIAutoTagEnabled } = await import('@/lib/ai/flags');
+    if (isAIAutoTagEnabled()) {
       autoTagResponse(participantSession.id, blockId, value).catch((err) => {
         console.error('[ai-auto-tag] failed:', err);
       });

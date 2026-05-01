@@ -363,6 +363,23 @@ export async function fetchFigmaFramesAction(
   process.env.FIGMA_ACCESS_TOKEN = figmaToken;
   try {
     const frames = await fetchFigmaFrames(parsed.fileKey, parsed.pageId);
+
+    // Story 9.1 — best-effort enrich with thumbnails (graceful degrade on failure)
+    if (frames.length > 0) {
+      try {
+        const { fetchFigmaThumbnails } = await import('@/lib/figma/api');
+        const thumbnails = await fetchFigmaThumbnails(
+          parsed.fileKey,
+          frames.map((f) => f.id)
+        );
+        for (const f of frames) {
+          if (thumbnails[f.id]) f.thumbnailUrl = thumbnails[f.id];
+        }
+      } catch {
+        // Frames work without thumbnails — don't fail the whole picker
+      }
+    }
+
     return { success: true, data: frames };
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : 'Erreur Figma API' };
