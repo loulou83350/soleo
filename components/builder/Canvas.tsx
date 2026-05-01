@@ -90,6 +90,17 @@ function BlockCard({
                 Conditionnel
               </span>
             )}
+            {(block.blockType === 'short_text' || block.blockType === 'long_text') &&
+              (config as { aiFollowUp?: boolean }).aiFollowUp && (
+                <span className="flex items-center gap-0.5 text-[10px] text-purple-700 bg-purple-50 px-1.5 py-0.5 rounded font-medium">
+                  ✨ Relance IA
+                  {typeof (config as { maxTurns?: number }).maxTurns === 'number' && (
+                    <span className="text-purple-600">
+                      &nbsp;·&nbsp;{(config as { maxTurns: number }).maxTurns}
+                    </span>
+                  )}
+                </span>
+              )}
           </div>
         </div>
       </div>

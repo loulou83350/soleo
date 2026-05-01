@@ -488,3 +488,55 @@ export const aiUsageLogsRelations = relations(aiUsageLogs, ({ one }) => ({
 
 export type AIUsageLog = typeof aiUsageLogs.$inferSelect;
 export type NewAIUsageLog = typeof aiUsageLogs.$inferInsert;
+
+// ─── AI Follow-up Turns (Epic 7 — AI Interviewer) ────────────────────────────
+//
+// Each row = one AI-generated follow-up question + its (optional) answer.
+// Multiple rows per parent response when max_follow_up_turns > 1.
+
+export const aiFollowupTurns = pgTable('ai_followup_turns', {
+  id: serial('id').primaryKey(),
+  /** The original short_text/long_text block that triggered the follow-up */
+  blockId: integer('block_id')
+    .notNull()
+    .references(() => sessionBlocks.id, { onDelete: 'cascade' }),
+  /** The original block_response we're deepening */
+  parentResponseId: integer('parent_response_id')
+    .notNull()
+    .references(() => blockResponses.id, { onDelete: 'cascade' }),
+  participantSessionId: integer('participant_session_id')
+    .notNull()
+    .references(() => participantSessions.id, { onDelete: 'cascade' }),
+  /** 1 = first follow-up, 2 = second, etc. */
+  turnNumber: integer('turn_number').notNull(),
+  aiQuestion: text('ai_question').notNull(),
+  /** null when status != 'answered' */
+  participantAnswer: text('participant_answer'),
+  /** 'answered' | 'skipped' | 'timeout' | 'error' */
+  status: varchar('status', { length: 16 }).notNull().default('answered'),
+  /** Provider/model that generated this turn (debug + audit) */
+  provider: varchar('provider', { length: 16 }),
+  model: varchar('model', { length: 64 }),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+});
+
+export const aiFollowupTurnsRelations = relations(
+  aiFollowupTurns,
+  ({ one }) => ({
+    block: one(sessionBlocks, {
+      fields: [aiFollowupTurns.blockId],
+      references: [sessionBlocks.id],
+    }),
+    parentResponse: one(blockResponses, {
+      fields: [aiFollowupTurns.parentResponseId],
+      references: [blockResponses.id],
+    }),
+    participantSession: one(participantSessions, {
+      fields: [aiFollowupTurns.participantSessionId],
+      references: [participantSessions.id],
+    }),
+  })
+);
+
+export type AIFollowupTurn = typeof aiFollowupTurns.$inferSelect;
+export type NewAIFollowupTurn = typeof aiFollowupTurns.$inferInsert;

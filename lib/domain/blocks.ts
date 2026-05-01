@@ -21,6 +21,9 @@ export type ContentConfig = {
 export type ShortTextConfig = {
   question: string;
   placeholder: string;
+  /** Epic 7 — AI Interviewer */
+  aiFollowUp: boolean;
+  maxTurns: 1 | 2 | 3;
 };
 
 export type LongTextConfig = {
@@ -108,6 +111,8 @@ export const BLOCK_DEFAULTS: Record<BlockType, BlockConfig> = {
   short_text: {
     question: '',
     placeholder: '',
+    aiFollowUp: false,
+    maxTurns: 1,
   } satisfies ShortTextConfig,
 
   long_text: {

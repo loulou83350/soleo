@@ -238,6 +238,12 @@ function ShortTextForm({ config, onChange }: { config: ShortTextConfig; onChange
         <Label>Placeholder</Label>
         <TextInput value={config.placeholder} onChange={(v) => onChange({ ...config, placeholder: v })} placeholder="Ex: Votre réponse ici…" />
       </div>
+      <AiFollowUpFields
+        aiFollowUp={config.aiFollowUp}
+        maxTurns={config.maxTurns}
+        onToggle={(v) => onChange({ ...config, aiFollowUp: v })}
+        onMaxTurnsChange={(v) => onChange({ ...config, maxTurns: v })}
+      />
     </div>
   );
 }
@@ -253,23 +259,56 @@ function LongTextForm({ config, onChange }: { config: LongTextConfig; onChange: 
         <Label>Placeholder</Label>
         <TextInput value={config.placeholder} onChange={(v) => onChange({ ...config, placeholder: v })} placeholder="Ex: Décrivez en détail…" />
       </div>
-      <div className="border-t border-border pt-3">
-        <Toggle
-          label="Suivi IA (Épique 7)"
-          checked={config.aiFollowUp}
-          onChange={(v) => onChange({ ...config, aiFollowUp: v })}
-        />
-        {config.aiFollowUp && (
+      <AiFollowUpFields
+        aiFollowUp={config.aiFollowUp}
+        maxTurns={config.maxTurns}
+        onToggle={(v) => onChange({ ...config, aiFollowUp: v })}
+        onMaxTurnsChange={(v) => onChange({ ...config, maxTurns: v })}
+      />
+    </div>
+  );
+}
+
+/**
+ * Shared AI follow-up controls for short_text + long_text blocks (Epic 7).
+ * When toggle is enabled, the participant gets up to N AI-generated relance
+ * questions after their answer. Stored in block.config as
+ * { aiFollowUp: boolean, maxTurns: 1|2|3 }.
+ */
+function AiFollowUpFields({
+  aiFollowUp,
+  maxTurns,
+  onToggle,
+  onMaxTurnsChange,
+}: {
+  aiFollowUp: boolean;
+  maxTurns: 1 | 2 | 3;
+  onToggle: (v: boolean) => void;
+  onMaxTurnsChange: (v: 1 | 2 | 3) => void;
+}) {
+  return (
+    <div className="border-t border-border pt-3">
+      <Toggle
+        label="✨ Relance IA"
+        checked={aiFollowUp}
+        onChange={onToggle}
+      />
+      {aiFollowUp && (
+        <>
+          <p className="mt-2 text-xs text-muted-foreground">
+            L'IA pose une question de relance contextuelle après la réponse du
+            participant pour creuser la réponse.
+          </p>
           <div className="mt-3">
             <RadioGroup
               label="Nombre max de relances"
               options={[{ value: 1, label: '1' }, { value: 2, label: '2' }, { value: 3, label: '3' }]}
-              value={config.maxTurns}
-              onChange={(v) => onChange({ ...config, maxTurns: v as 1 | 2 | 3 })}
+              value={maxTurns}
+              onChange={(v) => onMaxTurnsChange(v as 1 | 2 | 3)}
             />
           </div>
-        )}
-      </div>
+        </>
+      )}
     </div>
   );
 }

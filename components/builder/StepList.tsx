@@ -105,6 +105,9 @@ function SortableStepItem({ block, index, isActive, isDeleting, onSelect, onDele
   const iconColor = ICON_COLORS[block.blockType] ?? 'bg-muted text-muted-foreground';
   const label = BLOCK_LABELS[block.blockType as BlockType] ?? block.blockType;
   const preview = getStepPreview(block);
+  const aiEnabled =
+    (block.blockType === 'short_text' || block.blockType === 'long_text') &&
+    !!(block.config as { aiFollowUp?: boolean })?.aiFollowUp;
 
   return (
     <div ref={setNodeRef} style={style} className="group/step relative">
@@ -146,6 +149,17 @@ function SortableStepItem({ block, index, isActive, isDeleting, onSelect, onDele
             {preview}
           </span>
         </span>
+
+        {/* AI follow-up indicator */}
+        {aiEnabled && (
+          <span
+            className="text-[10px] text-purple-600 shrink-0"
+            title="Relance IA activée"
+            aria-label="Relance IA activée"
+          >
+            ✨
+          </span>
+        )}
 
         {/* Step number for non-anchor blocks */}
         {!isAnchor && (
