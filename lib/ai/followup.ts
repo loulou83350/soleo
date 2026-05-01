@@ -47,7 +47,7 @@ interface StreamYield {
   }>;
 }
 
-const SYSTEM_PROMPT = `Tu es un chercheur UX expérimenté qui mène un entretien semi-directif. Tu viens de lire la réponse d'un participant à une question. Génère UNE question de relance pour creuser, dans la même langue que la réponse.
+export const SYSTEM_PROMPT = `Tu es un chercheur UX expérimenté qui mène un entretien semi-directif. Tu viens de lire la réponse d'un participant à une question. Génère UNE question de relance pour creuser, dans la même langue que la réponse.
 
 CONTRAINTES STRICTES :
 - 1 seule question, courte (max 25 mots)
@@ -60,7 +60,7 @@ CONTRAINTES STRICTES :
 
 Sortie : la question seule, sans guillemets, sans markdown, sans préfixe.`;
 
-function buildUserPrompt(params: FollowupParams): string {
+export function buildUserPrompt(params: FollowupParams): string {
   const history =
     params.history.length === 0
       ? ''
