@@ -58,12 +58,20 @@ function SortableCardItem({ id, label }: { id: string; label: string }) {
 
 // ─── Block renderers ──────────────────────────────────────────────────────────
 
-function ShortTextBlock({ config, value, onChange, requiredError }: {
+function ShortTextBlock({ config, value, onChange, onNext, requiredError }: {
   config: Record<string, unknown>;
   value: unknown;
   onChange: (v: unknown) => void;
+  onNext?: () => void;
   requiredError: boolean;
 }) {
+  function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    // Enter submits, Shift+Enter inserts a newline (single-line answer convention)
+    if (e.key === 'Enter' && !e.shiftKey && onNext) {
+      e.preventDefault();
+      onNext();
+    }
+  }
   return (
     <div className="space-y-3">
       <label className="block text-xl font-semibold text-foreground leading-snug">
@@ -77,9 +85,14 @@ function ShortTextBlock({ config, value, onChange, requiredError }: {
         placeholder={String(config.placeholder || '')}
         value={typeof value === 'string' ? value : ''}
         onChange={(e) => onChange(e.target.value)}
+        onKeyDown={handleKeyDown}
         aria-required={true}
         aria-invalid={requiredError}
       />
+      <p className="text-xs text-muted-foreground/70">
+        <kbd className="px-1.5 py-0.5 text-[10px] bg-muted border border-border rounded">Entrée</kbd>{' '}
+        pour valider
+      </p>
       {requiredError && (
         <p className="text-sm text-destructive" role="alert">Ce champ est requis</p>
       )}
@@ -87,12 +100,20 @@ function ShortTextBlock({ config, value, onChange, requiredError }: {
   );
 }
 
-function LongTextBlock({ config, value, onChange, requiredError }: {
+function LongTextBlock({ config, value, onChange, onNext, requiredError }: {
   config: Record<string, unknown>;
   value: unknown;
   onChange: (v: unknown) => void;
+  onNext?: () => void;
   requiredError: boolean;
 }) {
+  function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    // ⌘/Ctrl+Enter submits, Enter creates a newline (multi-line convention)
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && onNext) {
+      e.preventDefault();
+      onNext();
+    }
+  }
   return (
     <div className="space-y-3">
       <label className="block text-xl font-semibold text-foreground leading-snug">
@@ -106,9 +127,16 @@ function LongTextBlock({ config, value, onChange, requiredError }: {
         placeholder={String(config.placeholder || '')}
         value={typeof value === 'string' ? value : ''}
         onChange={(e) => onChange(e.target.value)}
+        onKeyDown={handleKeyDown}
         aria-required={true}
         aria-invalid={requiredError}
       />
+      <p className="text-xs text-muted-foreground/70">
+        <kbd className="px-1.5 py-0.5 text-[10px] bg-muted border border-border rounded">⌘</kbd>
+        {' + '}
+        <kbd className="px-1.5 py-0.5 text-[10px] bg-muted border border-border rounded">Entrée</kbd>{' '}
+        pour valider
+      </p>
       {requiredError && (
         <p className="text-sm text-destructive" role="alert">Ce champ est requis</p>
       )}
@@ -850,9 +878,9 @@ export function ParticipantBlock({ block, value, onChange, onNext, requiredError
     case 'thank_you':
       return <ThankYouBlock config={config} />;
     case 'short_text':
-      return <ShortTextBlock config={config} value={value} onChange={onChange} requiredError={requiredError} />;
+      return <ShortTextBlock config={config} value={value} onChange={onChange} onNext={onNext} requiredError={requiredError} />;
     case 'long_text':
-      return <LongTextBlock config={config} value={value} onChange={onChange} requiredError={requiredError} />;
+      return <LongTextBlock config={config} value={value} onChange={onChange} onNext={onNext} requiredError={requiredError} />;
     case 'mcq':
       return <McqBlock config={config} value={value} onChange={onChange} requiredError={requiredError} />;
     case 'likert':

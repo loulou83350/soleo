@@ -396,7 +396,7 @@ export function SessionClient({ sessionToken, session, gateConfig }: SessionClie
             block={currentBlock}
             value={responses.get(currentBlock.id) ?? null}
             onChange={(value) => handleResponse(currentBlock.id, value)}
-            onNext={isWelcome ? handleNext : undefined}
+            onNext={savingNext ? undefined : handleNext}
             requiredError={requiredError}
           />
         </div>
