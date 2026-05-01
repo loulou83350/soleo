@@ -86,14 +86,14 @@ export async function saveBlockResponseAction(
   participantToken: string,
   blockId: number,
   value: unknown
-): Promise<ActionResult<void>> {
+): Promise<ActionResult<{ responseId: number }>> {
   const participantSession = await getParticipantSession(participantToken);
   if (!participantSession) {
     return { success: false, error: 'Session participant introuvable' };
   }
 
   try {
-    await upsertBlockResponse(participantSession.id, blockId, value);
+    const row = await upsertBlockResponse(participantSession.id, blockId, value);
 
     // Story 5.3 — auto-tagging hook (off by default).
     // Runs in the background, never blocks the participant flow.
@@ -103,7 +103,7 @@ export async function saveBlockResponseAction(
       });
     }
 
-    return { success: true, data: undefined };
+    return { success: true, data: { responseId: row.id } };
   } catch {
     return { success: false, error: 'Impossible de sauvegarder la réponse' };
   }

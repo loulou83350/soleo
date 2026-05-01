@@ -14,7 +14,11 @@ import { db } from '@/lib/db/drizzle';
 import { aiUsageLogs } from '@/lib/db/schema';
 import type { AIProvider } from './providers';
 
-export type AIFeature = 'tag_suggest' | 'findings_generate' | 'auto_tag';
+export type AIFeature =
+  | 'tag_suggest'
+  | 'findings_generate'
+  | 'auto_tag'
+  | 'ai_followup';
 
 interface ModelPrice {
   /** USD per 1M input tokens */

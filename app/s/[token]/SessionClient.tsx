@@ -15,6 +15,11 @@ import {
 import type { SessionWithBlocks, SessionBlock } from '@/lib/db/schema';
 import { ANCHOR_BLOCK_TYPES } from '@/lib/domain/blocks';
 import type { BlockType } from '@/lib/db/schema';
+import { AIFollowupTurn } from '@/components/participant/AIFollowupTurn';
+import {
+  streamFollowup,
+  submitFollowupAnswer,
+} from '@/lib/ai/followup-client';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -86,6 +91,25 @@ export function SessionClient({ sessionToken, session, gateConfig }: SessionClie
   const [passwordError, setPasswordError] = useState<string | null>(null);
   const [passwordChecking, setPasswordChecking] = useState(false);
   const [consentDeclined, setConsentDeclined] = useState(false);
+
+  // ─── Epic 7 — AI follow-up state machine ───────────────────────────────────
+  type FollowupPhase =
+    | { mode: 'idle' }
+    | {
+        mode: 'streaming';
+        blockId: number;
+        parentResponseId: number;
+        turnNumber: number;
+        maxTurns: number;
+        question: string;
+        turnId: number | null;
+        isLoading: boolean;
+        isSubmitting: boolean;
+      };
+  const [followupPhase, setFollowupPhase] = useState<FollowupPhase>({
+    mode: 'idle',
+  });
+  const followupCancelRef = useRef<(() => void) | null>(null);
 
   const initRef = useRef(false);
 
@@ -229,15 +253,175 @@ export function SessionClient({ sessionToken, session, gateConfig }: SessionClie
     setSavingNext(true);
 
     try {
-      if (!isWelcome) {
-        await saveBlockResponseAction(participantToken, currentBlock.id, value);
+      if (isWelcome) {
+        setStepIdx((prev) => prev + 1);
+        return;
       }
+
+      const saveRes = await saveBlockResponseAction(
+        participantToken,
+        currentBlock.id,
+        value
+      );
+
+      // Epic 7 — AI follow-up trigger.
+      // If the block has aiFollowUp enabled and we just saved a non-empty
+      // text answer, enter the follow-up state machine instead of advancing.
+      if (saveRes.success) {
+        const cfg = (currentBlock.config ?? {}) as {
+          aiFollowUp?: boolean;
+          maxTurns?: number;
+        };
+        const isOpenText =
+          currentBlock.blockType === 'short_text' ||
+          currentBlock.blockType === 'long_text';
+        const maxTurns = (cfg.maxTurns ?? 1) as number;
+        if (
+          isOpenText &&
+          cfg.aiFollowUp &&
+          typeof value === 'string' &&
+          value.trim().length > 0
+        ) {
+          startFollowupTurn({
+            blockId: currentBlock.id,
+            parentResponseId: saveRes.data.responseId,
+            turnNumber: 1,
+            maxTurns,
+          });
+          return;
+        }
+      }
+
       setStepIdx((prev) => prev + 1);
     } catch {
       setStepIdx((prev) => prev + 1);
     } finally {
       setSavingNext(false);
     }
+  }
+
+  // ─── Epic 7 — AI follow-up helpers ─────────────────────────────────────────
+
+  function startFollowupTurn(params: {
+    blockId: number;
+    parentResponseId: number;
+    turnNumber: number;
+    maxTurns: number;
+  }) {
+    if (!participantToken) return;
+
+    setFollowupPhase({
+      mode: 'streaming',
+      blockId: params.blockId,
+      parentResponseId: params.parentResponseId,
+      turnNumber: params.turnNumber,
+      maxTurns: params.maxTurns,
+      question: '',
+      turnId: null,
+      isLoading: true,
+      isSubmitting: false,
+    });
+
+    // 4s timeout — silently advance if the API doesn't start streaming
+    const timeoutId = window.setTimeout(() => {
+      followupCancelRef.current?.();
+      followupCancelRef.current = null;
+      // Skip this follow-up entirely and move on
+      exitFollowupAndAdvance();
+    }, 4000);
+
+    const cancel = streamFollowup(
+      {
+        participantToken,
+        blockId: params.blockId,
+        parentResponseId: params.parentResponseId,
+        turnNumber: params.turnNumber,
+      },
+      {
+        onToken: (chunk) => {
+          window.clearTimeout(timeoutId);
+          setFollowupPhase((prev) => {
+            if (prev.mode !== 'streaming') return prev;
+            return {
+              ...prev,
+              question: prev.question + chunk,
+              isLoading: false,
+            };
+          });
+        },
+        onMeta: (meta) => {
+          setFollowupPhase((prev) =>
+            prev.mode === 'streaming' ? { ...prev, turnId: meta.turnId } : prev
+          );
+        },
+        onDone: (final) => {
+          window.clearTimeout(timeoutId);
+          setFollowupPhase((prev) =>
+            prev.mode === 'streaming'
+              ? { ...prev, question: final.fullText, isLoading: false }
+              : prev
+          );
+        },
+        onError: () => {
+          window.clearTimeout(timeoutId);
+          // Silent fallback per AC: advance to next block, no participant-facing error
+          exitFollowupAndAdvance();
+        },
+      }
+    );
+
+    followupCancelRef.current = cancel;
+  }
+
+  function exitFollowupAndAdvance() {
+    followupCancelRef.current?.();
+    followupCancelRef.current = null;
+    setFollowupPhase({ mode: 'idle' });
+    setStepIdx((prev) => prev + 1);
+    setSavingNext(false);
+  }
+
+  async function handleFollowupSubmit(answer: string) {
+    if (followupPhase.mode !== 'streaming' || !participantToken) return;
+    const turnId = followupPhase.turnId;
+    if (turnId == null) return;
+
+    const phase = followupPhase;
+    setFollowupPhase({ ...phase, isSubmitting: true });
+
+    await submitFollowupAnswer({
+      participantToken,
+      turnId,
+      action: 'answer',
+      answer: answer.trim(),
+    });
+
+    // Loop or exit
+    if (phase.turnNumber < phase.maxTurns) {
+      startFollowupTurn({
+        blockId: phase.blockId,
+        parentResponseId: phase.parentResponseId,
+        turnNumber: phase.turnNumber + 1,
+        maxTurns: phase.maxTurns,
+      });
+    } else {
+      exitFollowupAndAdvance();
+    }
+  }
+
+  async function handleFollowupSkip() {
+    if (followupPhase.mode !== 'streaming' || !participantToken) return;
+
+    const phase = followupPhase;
+    if (phase.turnId != null) {
+      // Best-effort — fire and forget
+      submitFollowupAnswer({
+        participantToken,
+        turnId: phase.turnId,
+        action: 'skip',
+      });
+    }
+    exitFollowupAndAdvance();
   }
 
   function handleBack() {
@@ -389,21 +573,32 @@ export function SessionClient({ sessionToken, session, gateConfig }: SessionClie
         </header>
       )}
 
-      {/* Block content */}
+      {/* Block content (or AI follow-up if in that phase) */}
       <main className="flex-1 flex flex-col items-center justify-center px-6 py-10 w-full">
         <div className="w-full max-w-2xl">
-          <ParticipantBlock
-            block={currentBlock}
-            value={responses.get(currentBlock.id) ?? null}
-            onChange={(value) => handleResponse(currentBlock.id, value)}
-            onNext={savingNext ? undefined : handleNext}
-            requiredError={requiredError}
-          />
+          {followupPhase.mode === 'streaming' ? (
+            <AIFollowupTurn
+              question={followupPhase.question}
+              isLoading={followupPhase.isLoading}
+              isSubmitting={followupPhase.isSubmitting}
+              onSubmit={handleFollowupSubmit}
+              onSkip={handleFollowupSkip}
+              resetKey={followupPhase.turnNumber}
+            />
+          ) : (
+            <ParticipantBlock
+              block={currentBlock}
+              value={responses.get(currentBlock.id) ?? null}
+              onChange={(value) => handleResponse(currentBlock.id, value)}
+              onNext={savingNext ? undefined : handleNext}
+              requiredError={requiredError}
+            />
+          )}
         </div>
       </main>
 
-      {/* Navigation */}
-      {showNextButton && (
+      {/* Navigation — hidden during AI follow-up (its own buttons handle next/skip) */}
+      {showNextButton && followupPhase.mode === 'idle' && (
         <footer className="w-full px-6 py-4 flex items-center justify-between border-t border-border/50">
           <div>
             {showBackButton && (

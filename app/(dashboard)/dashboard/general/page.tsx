@@ -288,6 +288,7 @@ const FEATURE_LABELS: Record<string, string> = {
   tag_suggest: 'Suggestion de tags (manuel)',
   auto_tag: 'Tagging automatique',
   findings_generate: 'Génération de rapports',
+  ai_followup: 'Relance IA (entretien)',
 };
 
 function AIUsageCard() {
