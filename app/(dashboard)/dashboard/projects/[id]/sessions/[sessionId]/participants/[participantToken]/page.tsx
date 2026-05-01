@@ -10,6 +10,7 @@ import {
 } from '@/lib/repositories/participant-sessions';
 import { listTeamTags, listTagsForResponses } from '@/lib/repositories/tags';
 import { listPinnedResponseIdsForSession } from '@/lib/repositories/findings';
+import { getTurnsForResponses } from '@/lib/repositories/ai-followup';
 import {
   getActiveProvider,
   getAvailableProviders,
@@ -19,7 +20,16 @@ import { ANCHOR_BLOCK_TYPES } from '@/lib/domain/blocks';
 import { ResponseRenderer } from './ResponseRenderer';
 import { TagEditor } from '@/components/insights/TagEditor';
 import { PinHighlightButton } from '@/components/findings/PinHighlightButton';
-import type { SessionBlock, InsightTag, TagSource } from '@/lib/db/schema';
+import {
+  AIConversationThread,
+  AIBadge,
+} from '@/components/dashboard/AIConversationThread';
+import type {
+  SessionBlock,
+  InsightTag,
+  TagSource,
+  AIFollowupTurn,
+} from '@/lib/db/schema';
 
 interface Props {
   params: Promise<{ id: string; sessionId: string; participantToken: string }>;
@@ -53,12 +63,14 @@ export default async function ParticipantDetailPage({ params }: Props) {
   // blockId → response.id (needed to wire the TagEditor)
   const responseIdByBlockId = new Map(responses.map((r) => [r.blockId, r.id]));
 
-  // Fetch tag attachments + team library + pinned highlights + AI providers in parallel
-  const [tagsByResponse, teamTags, pinnedResponseIds] = await Promise.all([
-    listTagsForResponses(responses.map((r) => r.id)),
-    listTeamTags(userWithTeam.teamId),
-    listPinnedResponseIdsForSession(sessionId),
-  ]);
+  // Fetch tag attachments + team library + pinned highlights + AI follow-ups in parallel
+  const [tagsByResponse, teamTags, pinnedResponseIds, turnsByResponse] =
+    await Promise.all([
+      listTagsForResponses(responses.map((r) => r.id)),
+      listTeamTags(userWithTeam.teamId),
+      listPinnedResponseIdsForSession(sessionId),
+      getTurnsForResponses(responses.map((r) => r.id)),
+    ]);
   const availableProviders = getAvailableProviders();
   const activeProvider = getActiveProvider();
 
@@ -135,6 +147,8 @@ export default async function ParticipantDetailPage({ params }: Props) {
                       source: a.source,
                     }))
                   : [];
+              const turns =
+                responseId != null ? turnsByResponse.get(responseId) ?? [] : [];
               return (
                 <BlockAnswer
                   key={block.id}
@@ -147,6 +161,7 @@ export default async function ParticipantDetailPage({ params }: Props) {
                   teamTags={teamTags}
                   availableProviders={availableProviders}
                   activeProvider={activeProvider}
+                  followupTurns={turns}
                   context={{
                     projectId,
                     sessionId,
@@ -174,6 +189,7 @@ function BlockAnswer({
   teamTags,
   availableProviders,
   activeProvider,
+  followupTurns,
   context,
 }: {
   block: SessionBlock;
@@ -185,6 +201,7 @@ function BlockAnswer({
   teamTags: InsightTag[];
   availableProviders: ReturnType<typeof getAvailableProviders>;
   activeProvider: ReturnType<typeof getActiveProvider>;
+  followupTurns: AIFollowupTurn[];
   context: { projectId: number; sessionId: number; participantToken: string };
 }) {
   const config = (block.config ?? {}) as Record<string, unknown>;
@@ -195,19 +212,37 @@ function BlockAnswer({
         ? (config.title as string)
         : blockTypeLabel(block.blockType);
 
+  const hasFollowups = followupTurns.length > 0;
+  const answerCount = followupTurns.filter(
+    (t) => t.status === 'answered' && t.participantAnswer
+  ).length;
+
   return (
     <article className="border border-border rounded-lg p-5 bg-background space-y-3">
       <header className="flex items-baseline justify-between gap-3">
-        <h2 className="text-sm font-medium text-foreground">
-          <span className="text-muted-foreground tabular-nums mr-2">{index}.</span>
-          {question}
+        <h2 className="text-sm font-medium text-foreground flex items-center gap-2 flex-wrap">
+          <span>
+            <span className="text-muted-foreground tabular-nums mr-2">{index}.</span>
+            {question}
+          </span>
+          {hasFollowups && <AIBadge count={answerCount} />}
         </h2>
         <span className="text-xs text-muted-foreground shrink-0">
           {blockTypeLabel(block.blockType)}
         </span>
       </header>
 
-      <ResponseRenderer block={block} value={value} />
+      {/* Either show the conversation thread (when AI follow-up turns exist),
+          or the standard single-answer renderer */}
+      {hasFollowups ? (
+        <AIConversationThread
+          originalQuestion={question}
+          originalAnswer={typeof value === 'string' ? value : ''}
+          turns={followupTurns}
+        />
+      ) : (
+        <ResponseRenderer block={block} value={value} />
+      )}
 
       {/* Tag editor + pin button — only when there's an actual response row */}
       {responseId != null && (

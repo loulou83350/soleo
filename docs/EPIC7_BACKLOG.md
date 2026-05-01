@@ -2,11 +2,11 @@
 
 Source de vérité : `Soleo — Project Tracker` (Notion), database "Stories", Epic 7.
 
-| ID  | Titre                                              | Priority | Statut | Commit |
-|-----|----------------------------------------------------|----------|--------|--------|
-| 7.1 | AI Follow-Up Configuration in the Builder          | High     | 🟡 En cours | —      |
-| 7.2 | AI Follow-Up Generation During Participant Session | High     | ⏳ To Do  | —      |
-| 7.3 | AI Follow-Up Display in the Results Dashboard      | Medium   | ⏳ To Do  | —      |
+| ID  | Titre                                              | Priority | Statut  | Commit       |
+|-----|----------------------------------------------------|----------|---------|--------------|
+| 7.1 | AI Follow-Up Configuration in the Builder          | High     | ✅ Done | feat 7.1     |
+| 7.2 | AI Follow-Up Generation During Participant Session | High     | ✅ Done | feat 7.2     |
+| 7.3 | AI Follow-Up Display in the Results Dashboard      | Medium   | ✅ Done | feat 7.3     |
 
 ---
 
@@ -128,7 +128,15 @@ C'est la feature la plus différenciante du produit — elle transforme Soleo d'
 **Then** the thread is readable in document order; "AI follow-up question" is announced before each AI-generated question
 
 ### Implémentation
-- Composant `<AIConversationThread/>` réutilisable
-- Badge "AI" sur les cards de réponse dans la liste
+- Composant `<AIConversationThread/>` réutilisable + `<AIBadge count={n}/>`
+- Badge "AI" sur le header de chaque réponse approfondie (participant detail page)
 - Intégration dans `app/(dashboard)/.../participants/[participantToken]/page.tsx` (Story 5.2)
 - Repo helper `getTurnsForResponse(responseId)` + version batch pour la liste
+
+### Scope V1 — décisions
+- Badge wiré sur la **page détail participant** (vue canonique des réponses individuelles)
+- **Pas** de badge sur la cross-participant summary (`BlockSummaryRenderer`) — la
+  structure `TextSummary { samples: string[] }` n'a pas d'ID de réponse, ça nécessite
+  un refactor du pipeline d'agrégation. À faire dans une story séparée si utile.
+- **Pas** de badge sur `ParticipantTable` — la table liste des participants, pas des
+  réponses. Pas pertinent.
