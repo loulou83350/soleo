@@ -104,6 +104,22 @@ FR12.7: A quota-approach email (at 80% of any Free quota) MUST be sent (paywall 
 FR12.8: First-time contextual tooltips MUST appear on key features when first encountered (block types in builder, AI follow-up toggle, AI suggest button, findings AI button) and dismiss permanently after first dismissal.
 FR12.9: An in-app `?` button on every dashboard page MUST open a help drawer with quick-start docs + contact info.
 
+**Epic 13 — Live Site Testing**
+
+FR13.1: A new block type `live_site_task` MUST be available in the Builder, with config: prompt, instructions, mode (`html_upload` | `public_url`), entry page, optional goal URL for auto-detection of completion.
+FR13.2: Researchers MUST be able to upload a `.zip` of an HTML prototype (HTML/CSS/JS/assets) up to 50 MB; the system extracts it and hosts on `soleo.app/proto/[token]/`.
+FR13.3: When mode is `public_url`, the researcher pastes a URL; the system attempts to render it via iframe and provides a clear fallback message (with "Open in new tab" CTA) if `X-Frame-Options` blocks the iframe.
+FR13.4: A tracking JS lib (~150 KB gzipped, using rrweb under the hood) MUST be injected into hosted HTML prototypes; it captures: DOM snapshots (rrweb), clicks (with selector + element text), URL navigation, idle periods (>3s without activity), and completion events.
+FR13.5: Captured events MUST be transmitted in batches every 2 seconds to `/api/proto/events`, gzipped JSON payload, with retry on network failure.
+FR13.6: Completion detection MUST be hybrid: a manual "J'ai terminé" button is always visible AND an optional goal URL pattern triggers auto-completion when the participant reaches it.
+FR13.7: The participant runtime UI MUST display a Soleo top bar (task instructions + Done button) above the iframe, and respect the participant flow (gate, consent — Story 3.5 extended).
+FR13.8: Researchers MUST be able to replay any participant session via an rrweb-based player in the dashboard, including timeline scrubbing, speed control (1x/2x/4x), and event timeline (click/nav/idle).
+FR13.9: A click heatmap visualization MUST aggregate clicks per page across participants and render as a canvas overlay on the first DOM snapshot of each page.
+FR13.10: A navigation flow diagram MUST aggregate page-to-page transitions across participants and render as a directed graph (sankey-style or simple node-edge).
+FR13.11: A per-participant timeline view MUST list events in chronological order with timestamps, page context, and event type; aggregate metrics per task MUST include success rate, median duration, abandon rate, idle hotspots.
+FR13.12: The whole `live_site_task` feature MUST be gated by env flag `NEXT_PUBLIC_LIVE_SITE_TASK`; the block type does not appear in the Builder palette and the runtime route returns 404 when OFF.
+FR13.13: The HTML upload mode MUST be additionally gated by env flag `NEXT_PUBLIC_LIVE_SITE_HTML_UPLOAD`; when OFF, only the `public_url` mode is available in the ConfigPanel.
+
 ### NonFunctional Requirements
 
 NFR8.1: All quota checks MUST be type-safe, centralized in `lib/billing/plans.ts` and `lib/billing/quotas.ts`, with no quota magic numbers scattered across the codebase.
@@ -119,6 +135,10 @@ NFR11.2: Translation file size budget: <100 KB per locale for the initial Englis
 NFR11.3: Migration from hardcoded FR strings MUST not break any existing functionality (zero functional regression).
 NFR12.1: Activation funnel events MUST be tracked via PostHog (already wired) — no extra tracking infrastructure for Epic 12.
 NFR12.2: First-time tooltip dismissal state MUST be persisted (cookie or `users.onboarding_dismissed` JSON column) so they never re-appear after dismissal.
+NFR13.1: rrweb captures MUST mask all `<input>` text fields, password fields, and any element marked `data-soleo-mask` by default (privacy by default).
+NFR13.2: Per-session recording size MUST be capped at 10 MB (sufficient for ~15 min of typical prototype interaction); recording auto-stops above this cap.
+NFR13.3: Event ingestion MUST tolerate 100 events/sec/participant without backpressure (batched POST, fire-and-forget on failure).
+NFR13.4: Hosted prototype files (HTML/CSS/JS) MUST be served with CSP that allows the Soleo tracking script but otherwise prevents external requests (sandbox-like).
 
 ### Additional Requirements (from existing Architecture/State)
 
@@ -150,6 +170,10 @@ UX-DR11.1: Language switcher MUST be visible in the header (icon + current local
 UX-DR11.2: Translation work MUST preserve typographic conventions per locale (FR: insécables avant `:` `?` `!` ; quotes `« »`).
 UX-DR12.1: Onboarding components MUST be skippable / dismissable (no forced "next" friction).
 UX-DR12.2: First-time tooltips MUST use a discreet visual pattern (small dot indicator + popover on click) — not an aggressive modal that blocks the UI.
+UX-DR13.1: The participant top bar MUST be minimal: task instructions truncated to 1 line (full on click), Done button right-aligned, optional skip link. Fixed height ~56px.
+UX-DR13.2: The replay player MUST follow the standard video player metaphor: play/pause, timeline scrubber, speed control, current-event label. Keyboard shortcuts: spacebar=play, arrows=skip.
+UX-DR13.3: The click heatmap colors MUST be intuitive (no clicks=transparent, 1-2 clicks=cool blue, 5+=warm orange, 10+=red). Legend visible.
+UX-DR13.4: Empty-state for sessions with no events MUST clearly indicate "Participant didn't interact" + show how long they stayed.
 
 ### FR Coverage Map
 
@@ -217,7 +241,28 @@ This map ensures every FR is owned by exactly one Epic.
 - NFR12.1, NFR12.2 → tracked via PostHog (Story 12.7) + dismissal persistence in tooltip story
 - UX-DR12.1, UX-DR12.2 → applied across stories 12.1, 12.6, 12.8
 
-All 36 FRs + 11 NFRs + 13 UX-DRs are covered. No requirement is orphaned.
+**Epic 13 — Live Site Testing**
+- FR13.1 → New block type in Builder (Story 13.1)
+- FR13.2 → HTML zip upload (Story 13.2)
+- FR13.3 → Public URL mode + iframe fallback (Story 13.4)
+- FR13.4 → Tracking JS + rrweb capture (Story 13.5)
+- FR13.5 → Event ingestion API (Story 13.6)
+- FR13.6 → Hybrid completion (manual + goal) (Story 13.7)
+- FR13.7 → Participant runtime UI (Story 13.7)
+- FR13.8 → Session replay viewer (Story 13.8)
+- FR13.9 → Click heatmap (Story 13.9)
+- FR13.10 → Navigation flow diagram (Story 13.10)
+- FR13.11 → Per-participant timeline + aggregate metrics (Story 13.11)
+- FR13.12 → `NEXT_PUBLIC_LIVE_SITE_TASK` flag (Story 13.1 — gating built-in from day 1)
+- FR13.13 → `NEXT_PUBLIC_LIVE_SITE_HTML_UPLOAD` flag (Story 13.2 — gating built-in from day 1)
+- NFR13.1, NFR13.2 → enforced in tracking lib (Story 13.5)
+- NFR13.3, NFR13.4 → enforced in ingestion + hosted runtime (Stories 13.3, 13.6)
+- UX-DR13.1 → participant UI (Story 13.7)
+- UX-DR13.2 → replay player (Story 13.8)
+- UX-DR13.3 → heatmap (Story 13.9)
+- UX-DR13.4 → empty state on per-participant timeline (Story 13.11)
+
+All 49 FRs + 15 NFRs + 17 UX-DRs are covered. No requirement is orphaned.
 
 ## Epic List
 
@@ -298,6 +343,32 @@ The 3 Epics are structured around **distinct user-value outcomes** and are **sta
 
 **Hors-scope** (explicit):
 - Figma OAuth flow (deferred — Soleo not yet validated by Figma, keep using PAT for now)
+
+### Epic 13: Live Site Testing
+
+**Goal**: Researchers can test any HTML prototype (uploaded zip from Claude Artifacts / V0 / Bolt / hand-built) or public URL on real participants and observe their behavior in detail: clicks, navigation, idle moments, full session replay (rrweb-style).
+
+**User outcome**: A researcher uploads a static HTML prototype to Soleo (or pastes a deployed URL), creates a `live_site_task` block with instructions and an optional goal page, and invites participants. Each participant completes the task in their browser (iframe + Soleo top bar). The researcher then reviews each session's full replay (video-like), sees the aggregate click heatmap, the navigation flow diagram, and per-participant metrics — all without leaving the Soleo dashboard.
+
+**FRs covered**: FR13.1, FR13.2, FR13.3, FR13.4, FR13.5, FR13.6, FR13.7, FR13.8, FR13.9, FR13.10, FR13.11, FR13.12, FR13.13
+**NFRs covered**: NFR13.1, NFR13.2, NFR13.3, NFR13.4
+**UX-DRs covered**: UX-DR13.1, UX-DR13.2, UX-DR13.3, UX-DR13.4
+
+**Standalone**: ✅ Ships independently. The feature is fully gated behind `NEXT_PUBLIC_LIVE_SITE_TASK` — when OFF, zero impact on the rest of the app. Doesn't depend on Epic 8 (billing), Epic 10 (landing), Epic 11 (i18n), or Epic 12 (onboarding).
+
+**Dependencies**:
+- Soft on Epic 11 — participant UI / replay viewer texts get translated when Epic 11 ships
+- Soft on Epic 12 — first-time tooltip on the "Live site task" block type added in Story 12.6 once Epic 13 ships
+
+**Differentiator**: With Epic 7 (AI Interviewer) already shipped, Epic 13 (Live Site Testing) is the 2nd major differentiator that positions Soleo between Maze / UserTesting / Hotjar — but with the "AI-led research platform" angle.
+
+**Hors-scope** (explicit):
+- AI summary / friction detection (kept for V2)
+- Scroll/attention heatmaps (V1 = clicks only)
+- Multi-tab prototype scenarios
+- Annotations during replay
+- MP4 export of replay
+- "Researcher snippet on their own live site" — different model, not in this Epic
 
 ═══════════════════════════════════════════════════════════════════════════════
 
@@ -1148,10 +1219,360 @@ So that I can decide proactively to upgrade or wait.
 
 ═══════════════════════════════════════════════════════════════════════════════
 
+═══════════════════════════════════════════════════════════════════════════════
+
+## Epic 13: Live Site Testing
+
+Researchers test HTML prototypes (Claude Artifact / V0 / Bolt / handmade) or public URLs on real participants with full PostHog-style session recording (rrweb), click heatmaps, navigation flow diagrams, and per-participant timelines. Feature gated behind 2 independent flags (`NEXT_PUBLIC_LIVE_SITE_TASK` for the whole block, `NEXT_PUBLIC_LIVE_SITE_HTML_UPLOAD` for the HTML upload mode specifically).
+
+### Story 13.1: New `live_site_task` block type in Builder (with feature flag)
+
+As a researcher,
+I want a new "Live Site Task" block in the Builder with a config form,
+So that I can add a prototype-testing step to my study without having to leave Soleo.
+
+**Acceptance Criteria:**
+
+**Given** `NEXT_PUBLIC_LIVE_SITE_TASK=true`
+**When** I open the BlockPalette in the Builder
+**Then** I see a new "Live Site Task" entry with an icon (e.g. globe + cursor) and add it to my session
+
+---
+
+**Given** `NEXT_PUBLIC_LIVE_SITE_TASK=false` (default)
+**When** I open the BlockPalette
+**Then** the "Live Site Task" entry does NOT appear, and any existing block of this type in a session is gracefully hidden/disabled with a "Feature disabled" message in the editor
+
+---
+
+**Given** I added a `live_site_task` block
+**When** the ConfigPanel opens
+**Then** I see fields: prompt (the task to perform), instructions (longer description), mode (`html_upload` | `public_url` toggle), entry page (default "index.html"), optional goal URL pattern (e.g. "/thank-you")
+
+---
+
+**Given** I save the block config
+**When** the session is published
+**Then** the block is part of the participant flow at the configured position
+
+### Story 13.2: HTML prototype upload (zip → Supabase Storage)
+
+As a researcher,
+I want to upload a `.zip` of my HTML prototype (e.g. Claude Artifact export, V0 download) up to 50 MB,
+So that Soleo can host and instrument the prototype for participant testing.
+
+**Acceptance Criteria:**
+
+**Given** `NEXT_PUBLIC_LIVE_SITE_HTML_UPLOAD=true` and I'm in the `live_site_task` ConfigPanel with mode=`html_upload`
+**When** I click "Upload zip" and select a valid .zip file <50 MB
+**Then** the file is uploaded to Supabase Storage (`prototypes/{teamId}/{taskId}/`), extracted server-side, and the entry page (default index.html) is verified to exist
+
+---
+
+**Given** I upload a zip exceeding 50 MB or containing only non-HTML files
+**When** the upload validates
+**Then** I see a clear error message ("Zip too large: 60 MB > 50 MB max" or "No HTML file found") and no file is stored
+
+---
+
+**Given** `NEXT_PUBLIC_LIVE_SITE_HTML_UPLOAD=false`
+**When** I'm in the ConfigPanel
+**Then** the `html_upload` mode is hidden/disabled; only `public_url` mode is selectable
+
+---
+
+**Given** I uploaded a zip and want to replace it
+**When** I upload a new zip
+**Then** the old files are deleted from Supabase Storage and the new ones take their place (no orphan files)
+
+### Story 13.3: Hosted prototype runtime with injected tracking JS
+
+As a participant,
+I want to interact with the researcher's prototype hosted on Soleo,
+So that I can complete the task as if I were on the real site.
+
+**Acceptance Criteria:**
+
+**Given** a prototype is uploaded for task X with token T
+**When** I open `/proto/T/` (or `/proto/T/somepage.html`) from the participant runtime
+**Then** the HTML is served from Supabase Storage with the entry page as default, MIME types correct, assets (CSS/JS/images) loaded relatively
+
+---
+
+**Given** the served HTML has a `<head>` section
+**When** the server-side rewrite runs
+**Then** a `<script src="/api/proto/tracking.js">` tag is injected just before `</head>`, and a `<meta name="soleo-task" content="...">` tag carries the token + sessionId
+
+---
+
+**Given** the participant session token is invalid or expired
+**When** they request `/proto/T/`
+**Then** the endpoint returns 403
+
+---
+
+**Given** `NEXT_PUBLIC_LIVE_SITE_TASK=false`
+**When** any request comes to `/proto/[token]/*`
+**Then** the route returns 404 (feature off entirely)
+
+### Story 13.4: Public URL mode with iframe load detection + fallback
+
+As a researcher,
+I want to alternatively paste a public URL (deployed prototype on Vercel/Netlify) instead of uploading a zip,
+So that I can test prototypes already hosted elsewhere without re-uploading.
+
+**Acceptance Criteria:**
+
+**Given** I'm in ConfigPanel and select mode=`public_url`
+**When** I paste a URL (e.g. `https://my-proto.vercel.app`)
+**Then** the URL is validated (format + reachability via HEAD), saved on the block, and used as the iframe `src` at runtime
+
+---
+
+**Given** the public URL responds with `X-Frame-Options: DENY` or CSP that blocks iframing
+**When** the participant tries to load the iframe
+**Then** within 5s of iframe load attempt, a fallback message appears "Le prototype ne s'affiche pas ici. Ouvrir dans un nouvel onglet pour tester →" with a button that opens the URL in a new tab AND keeps the Soleo top bar visible with the Done button
+
+---
+
+**Given** the public URL is unreachable (404/500/timeout)
+**When** the iframe fails to load
+**Then** the fallback message is shown immediately (no 5s wait) and the researcher receives a notification in the dashboard
+
+---
+
+**Given** a public URL is used
+**When** events are captured
+**Then** only navigation events (URL changes) are captured client-side via iframe message events; rrweb cannot capture DOM snapshots for cross-origin iframes, so the recording is degraded to nav+idle only
+
+### Story 13.5: Tracking JS lib + rrweb integration
+
+As the system,
+I must provide a tracking JS lib that captures rrweb DOM snapshots + clicks + navigation + idle periods,
+So that the researcher gets a full session replay and event timeline.
+
+**Acceptance Criteria:**
+
+**Given** the tracking lib is loaded in a hosted prototype
+**When** the participant interacts with the page
+**Then** rrweb captures: full DOM snapshot at start, incremental DOM mutations, mouse moves (sampled), clicks (with selector + element text), input events (with masking)
+
+---
+
+**Given** rrweb is configured with `maskAllInputs: true` and `maskTextSelector: 'input, [data-soleo-mask]'`
+**When** the participant types in an `<input>`
+**Then** the captured value is masked (replaced with `*` characters) in the recording
+
+---
+
+**Given** the participant doesn't interact for 3+ seconds
+**When** the idle timer elapses
+**Then** an `idle` event is emitted with the duration; the timer resets on any mouse move, click, or key press
+
+---
+
+**Given** events accumulate in memory
+**When** the batch timer (every 2s) fires OR the buffer reaches 1MB
+**Then** the batch is gzipped and POSTed to `/api/proto/events`; on failure, retry with exponential backoff (up to 3 retries)
+
+---
+
+**Given** the session recording size approaches the 10 MB cap (NFR13.2)
+**When** the cap is reached
+**Then** capture auto-stops, a "Session limit reached" event is emitted, and the participant can still complete the task (just no more recording)
+
+### Story 13.6: Event ingestion API + DB schema
+
+As the system,
+I must accept event batches from the tracking JS and persist them to a structured DB schema,
+So that the researcher dashboard can query events efficiently for replay, heatmap, and analytics.
+
+**Acceptance Criteria:**
+
+**Given** a POST to `/api/proto/events` with a valid session token + gzipped event batch
+**When** the request is processed
+**Then** events are decoded, parsed, and persisted to `live_site_events` (one row per event) and `live_site_recordings` (rrweb snapshots stored in Supabase Storage with a row referencing them)
+
+---
+
+**Given** the migration `0006_live_site_testing.sql` is applied
+**When** the schema is inspected
+**Then** the tables `live_site_tasks`, `live_site_sessions`, `live_site_events`, `live_site_recordings` exist with correct foreign keys and indexes (`(sessionId, timestamp)` on events for fast replay)
+
+---
+
+**Given** the ingestion endpoint receives a malformed payload
+**When** processed
+**Then** it returns 400 with a clear error message and logs the issue (no crash, no data corruption)
+
+---
+
+**Given** 100 events arrive per second from a single participant
+**When** the server processes them
+**Then** no requests are dropped (batched insert per session), and the total ingestion latency is under 500ms p95
+
+### Story 13.7: Participant runtime UI (top bar + iframe + completion logic)
+
+As a participant,
+I want a clear interface above the prototype iframe with the task instructions and a "Done" button,
+So that I know what to do and how to finish the task.
+
+**Acceptance Criteria:**
+
+**Given** I reach a `live_site_task` step in a participant session
+**When** the page renders
+**Then** I see a top bar (~56px height) with: task prompt truncated to 1 line (full text on hover/click), a "J'ai terminé" button right-aligned, an optional skip link, and below the iframe loads the prototype
+
+---
+
+**Given** the researcher configured a goal URL pattern (e.g. `/thank-you`)
+**When** the iframe navigates to a URL matching the pattern
+**Then** the task is auto-completed (status=`goal`), the user sees a brief success indicator, and the session advances to the next block automatically (after 1s delay for visual feedback)
+
+---
+
+**Given** the participant clicks "J'ai terminé"
+**When** the action runs
+**Then** a `completion` event is emitted with `mode=manual`, the recording stops, and the session advances to the next block
+
+---
+
+**Given** the participant clicks "Passer cette tâche"
+**When** the action runs
+**Then** a `completion` event with `mode=skipped` is emitted, the recording stops, the session advances
+
+---
+
+**Given** the iframe fails to load (X-Frame-Options or network)
+**When** the failure is detected
+**Then** the participant sees the fallback "Open in new tab" UX (per Story 13.4) without losing access to the Done button
+
+### Story 13.8: Session replay viewer (rrweb player) in dashboard
+
+As a researcher,
+I want to replay any participant session as a video,
+So that I can observe exactly what the participant did, including hesitations and dead ends.
+
+**Acceptance Criteria:**
+
+**Given** I'm on `/dashboard/.../participants/[token]` and the participant has a `live_site_task` recording
+**When** I scroll to the replay section
+**Then** I see a rrweb player with: play/pause button, timeline scrubber, current time, total duration, speed control (1x/2x/4x), event sidebar (chronological list of clicks/nav/idle)
+
+---
+
+**Given** the player is playing
+**When** I press spacebar
+**Then** play/pause toggles; arrow keys jump ±5s in the timeline
+
+---
+
+**Given** an event in the sidebar is clicked
+**When** I select it
+**Then** the player seeks to that timestamp and visually highlights the related element in the replay
+
+---
+
+**Given** the recording is in progress (participant still active) — rare edge case
+**When** I open the replay viewer
+**Then** I see a message "Session in progress — refresh to update" without a partial replay (avoid showing incomplete data)
+
+### Story 13.9: Click heatmap visualization
+
+As a researcher,
+I want to see where participants clicked aggregated across all sessions,
+So that I can identify high-attention areas and missed CTAs.
+
+**Acceptance Criteria:**
+
+**Given** I'm on a `live_site_task` aggregate view in the dashboard
+**When** I select a page URL from the dropdown
+**Then** I see a heatmap canvas overlaid on the first DOM snapshot of that page, with clicks colored by frequency (transparent → cool blue → warm orange → red)
+
+---
+
+**Given** clicks are aggregated across N participants
+**When** the canvas renders
+**Then** kernel density estimation smooths the clicks into hotspots (radius proportional to canvas size), and a legend shows the click count scale
+
+---
+
+**Given** no participants reached this page
+**When** I select it in the dropdown
+**Then** the heatmap shows an empty state "0 clics enregistrés sur cette page" instead of a blank canvas
+
+---
+
+**Given** the page snapshot is large (>1920px width)
+**When** the heatmap renders
+**Then** it scales responsively to fit the dashboard viewport while preserving click coordinate proportions
+
+### Story 13.10: Navigation flow diagram
+
+As a researcher,
+I want a visual diagram of how participants navigated through the prototype,
+So that I can spot common paths, dead ends, and the most-visited pages.
+
+**Acceptance Criteria:**
+
+**Given** I'm on the `live_site_task` aggregate view
+**When** I scroll to the navigation flow section
+**Then** I see a directed graph (Sankey-like or node-edge) where nodes are pages and edges are transitions, with edge thickness proportional to the number of participants who took that path
+
+---
+
+**Given** the entry page exists (default `index.html`)
+**When** the diagram renders
+**Then** the entry page is highlighted as the start node (e.g. green border) and the goal URL (if configured) is highlighted as the end node (e.g. gold border)
+
+---
+
+**Given** a participant abandoned mid-flow
+**When** the diagram shows their path
+**Then** their final page is marked as a "drop-off" (smaller red indicator on the node)
+
+---
+
+**Given** there are >20 unique pages visited
+**When** the diagram would be too cluttered
+**Then** lesser-visited pages are grouped under an "Other (N pages)" node, and the researcher can click to expand details
+
+### Story 13.11: Per-participant timeline + aggregate metrics
+
+As a researcher,
+I want to drill into a single participant's session AND see aggregate metrics across all participants,
+So that I have both granular insights and high-level patterns.
+
+**Acceptance Criteria:**
+
+**Given** I open a specific participant's `live_site_task` record
+**When** the timeline view renders
+**Then** I see a vertical list of events with: timestamp, page context, event type icon (click/nav/idle), event description ("Clicked 'Sign Up' button on /home", "Idle 8s on /pricing"), and a link to "Show in replay" that seeks the player
+
+---
+
+**Given** a participant didn't interact at all
+**When** the timeline view renders
+**Then** an empty state message clearly indicates "Le participant n'a pas interagi avec le prototype" + total time spent + completion status (per UX-DR13.4)
+
+---
+
+**Given** I'm on the aggregate view
+**When** the metrics section renders
+**Then** I see: total participants, success rate (% reached goal OR clicked Done), median duration, abandon rate (% closed without completing), top 3 idle hotspots (page + median idle time)
+
+---
+
+**Given** the aggregate metrics are computed
+**When** they need to refresh
+**Then** they're computed live on each page load (no caching for MVP — keep simple); if performance becomes an issue, we add a materialized view later
+
+═══════════════════════════════════════════════════════════════════════════════
+
 ## Summary
 
-- **4 Epics**, all standalone
-- **28 Stories** total (Epic 11: 6, Epic 10: 5, Epic 8: 8, Epic 12: 9)
-- **36 FRs + 11 NFRs + 13 UX-DRs** all covered (per FR Coverage Map)
+- **5 Epics**, all standalone
+- **39 Stories** total (Epic 11: 6, Epic 10: 5, Epic 8: 8, Epic 12: 9, Epic 13: 11)
+- **49 FRs + 15 NFRs + 17 UX-DRs** all covered (per FR Coverage Map)
 - **0 cross-story dependencies within an Epic** — each story can be implemented and tested in isolation given the previous stories of its Epic are done
-- **Cross-Epic dependencies** are soft (currency adapts to locale only if Epic 11 is shipped, etc.) — none of the Epics is blocked by another
+- **Cross-Epic dependencies** are soft — none of the Epics is blocked by another
