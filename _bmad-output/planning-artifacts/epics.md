@@ -1569,10 +1569,564 @@ So that I have both granular insights and high-level patterns.
 
 ═══════════════════════════════════════════════════════════════════════════════
 
+═══════════════════════════════════════════════════════════════════════════════
+
+## Epic 14: AI Study Builder
+
+**Goal**: Researchers (especially non-experts) describe their research goal in plain text and AI generates a draft session with appropriate blocks. Reduces from-scratch time from 30min to 2min.
+
+**FRs covered**: FR14.1-14.6 (study generation, regeneration, templates, cost preview, refinement, flag).
+
+### Story 14.1: Goal-prompt → session blocks generator
+
+As a Member, especially one without UX research training,
+I want to describe my research goal in plain language and have AI generate a draft session structure,
+So that I can start from a working baseline instead of a blank canvas.
+
+**Acceptance Criteria:**
+
+**Given** I'm on `/dashboard/projects/[id]/sessions/new` and AI Study Builder flag is ON
+**When** I see a "Start with AI" option and type a prompt like "Je veux comprendre pourquoi les users abandonnent le checkout"
+**Then** within 15s, AI generates a session with welcome + 4-7 blocks adapted to the goal (likely: open-text "Raconte ton dernier achat", MCQ "Quels obstacles", likert "Confiance en notre site", AI follow-up enabled on key questions, thank_you)
+
+---
+
+**Given** AI generated a draft session
+**When** the result lands in the builder
+**Then** I see all generated blocks marked with a small "✨ AI-generated" badge that disappears once I edit the block (signals what's AI vs my edits)
+
+---
+
+**Given** the AI generation fails (timeout, API error)
+**When** the failure happens
+**Then** I'm shown a clear error message + a "Start blank" fallback CTA + the prompt is preserved in input so I can retry
+
+---
+
+**Given** AI uses an LLM call
+**When** generated
+**Then** the cost is logged via `logAIUsage({ feature: 'study_builder', ... })` and counted against quotas (Epic 8)
+
+### Story 14.2: Per-block AI regeneration
+
+As a Member who likes most of the AI-generated session but wants to tweak one block,
+I want to right-click any block and "Regenerate this block",
+So that I can iterate quickly without rebuilding the whole session.
+
+**Acceptance Criteria:**
+
+**Given** I have a session with at least one block
+**When** I click "Regenerate" on a specific block (button in the BlockCard menu)
+**Then** AI receives the session's overall goal + the current block's context (type, neighbors) and proposes a replacement block of the same type with refined wording
+
+---
+
+**Given** the regenerated block is proposed
+**When** I see it
+**Then** I get a side-by-side preview (current vs proposed) with "Apply" / "Discard" buttons, and the proposed block doesn't overwrite my current one until I confirm
+
+### Story 14.3: Template starter library
+
+As a Member who doesn't want to write a goal from scratch,
+I want a library of pre-built research goals with one-click generation,
+So that I can start from common use-cases (NPS, onboarding feedback, churn analysis, etc.).
+
+**Acceptance Criteria:**
+
+**Given** I'm on the "Start with AI" screen
+**When** I scroll below the goal input
+**Then** I see at least 5 template goals: "NPS + open feedback", "Onboarding feedback", "Churn analysis", "Feature prioritization", "Prototype usability"
+
+---
+
+**Given** I click a template
+**When** the template loads
+**Then** the goal input pre-fills with a polished prompt, and I can click "Generate" without typing anything
+
+### Story 14.4: Cost preview before generation
+
+As a Pro user mindful of AI costs,
+I want to see an estimated token cost before triggering an AI generation,
+So that I can decide whether to proceed or refine the prompt first.
+
+**Acceptance Criteria:**
+
+**Given** I have a prompt in the input box
+**When** I focus the "Generate" button
+**Then** a small tooltip shows "Estimated cost: ~$0.03 (input ~500 tok, output ~1500 tok)"
+
+---
+
+**Given** my Free quota is low (<10% remaining of monthly AI findings/studies)
+**When** I attempt to generate
+**Then** an UpgradePrompt appears warning me before the call
+
+### Story 14.5: Multi-step refinement (AI propose → user adjust → AI refine)
+
+As a Member who wants to iterate on the generated session conversationally,
+I want a chat-like refinement panel where I can ask AI to adjust the session,
+So that I get to my ideal session without rebuilding it manually.
+
+**Acceptance Criteria:**
+
+**Given** I have an AI-generated session
+**When** I open the "Refine with AI" panel
+**Then** I see a chat input where I can type things like "Remove the NPS question, add a question about pricing perception"
+
+---
+
+**Given** I send a refinement request
+**When** AI processes it
+**Then** the session updates in place with the requested changes (additions highlighted, deletions confirmed first)
+
+---
+
+**Given** I've used 3 refinement rounds
+**When** I attempt a 4th on the same session
+**Then** I see a Pro-upgrade prompt OR (on Pro) it continues unlimited
+
+### Story 14.6: Feature flag `NEXT_PUBLIC_AI_STUDY_BUILDER`
+
+As the team controlling rollout,
+I want a feature flag to gate AI Study Builder visibility,
+So that we can ship it dark and enable per-environment.
+
+**Acceptance Criteria:**
+
+**Given** `NEXT_PUBLIC_AI_STUDY_BUILDER=false` (default)
+**When** I navigate to create a new session
+**Then** the "Start with AI" option is hidden, only "Start blank" + "From template" remain
+
+---
+
+**Given** flag is `true`
+**When** I navigate to create
+**Then** "Start with AI" appears as primary CTA
+
+═══════════════════════════════════════════════════════════════════════════════
+
+## Epic 15: Question Quality & Bias Coaching
+
+**Goal**: Real-time AI feedback on questions being written in the builder. Detects leading questions, biases, confusing wording, suggests rephrasings.
+
+**FRs covered**: FR15.1-15.4 (bias detection, rephrasing, health score, flag).
+
+### Story 15.1: Real-time bias detection on questions
+
+As a Member writing questions in the builder,
+I want AI to flag biased / leading questions as I type,
+So that I avoid skewing my research before I even publish.
+
+**Acceptance Criteria:**
+
+**Given** I'm in the ConfigPanel of a question block (short_text, long_text, mcq, likert, nps, rating)
+**When** I finish typing a question (debounced 800ms) like "Don't you think our pricing is too expensive?"
+**Then** within 1s, a discreet warning appears below the question field: "⚠️ Leading question — assumes a position"
+
+---
+
+**Given** my question is neutral
+**When** AI processes it
+**Then** no warning appears (silent pass)
+
+---
+
+**Given** the feature flag is OFF
+**When** I type
+**Then** no warning ever appears (the check isn't triggered at all)
+
+### Story 15.2: Inline rephrasing suggestions
+
+As a Member who got a bias warning,
+I want one-click access to AI-suggested rephrasings,
+So that I can fix the question without leaving the panel.
+
+**Acceptance Criteria:**
+
+**Given** a bias warning is displayed
+**When** I click "See suggestions"
+**Then** AI proposes 2-3 alternative phrasings of the question (neutral, unambiguous), with reasoning ("Removes assumption", "Opens to negative experiences")
+
+---
+
+**Given** I see suggestions
+**When** I click "Apply" on one
+**Then** the question field updates with the chosen rephrasing, the warning disappears, and an action is undoable via Cmd+Z
+
+### Story 15.3: Question health score per block
+
+As a Member configuring a question,
+I want a small visible indicator of the question's "health" (0-100),
+So that I see at a glance which blocks need attention.
+
+**Acceptance Criteria:**
+
+**Given** a question has been analyzed
+**When** the BlockCard renders in the canvas
+**Then** a small badge shows the health score color-coded (green ≥80, amber 60-79, red <60) — only displayed if the flag is on
+
+---
+
+**Given** a block has score <60
+**When** I hover the badge
+**Then** a tooltip lists the issues found ("Bias detected", "Ambiguous wording", "Too long: 24 words")
+
+### Story 15.4: Feature flag `NEXT_PUBLIC_AI_QUESTION_COACH`
+
+As the team,
+I want to gate this feature behind a flag,
+So that it can be rolled out progressively.
+
+**Acceptance Criteria:**
+
+**Given** the flag is OFF (default)
+**When** I edit questions in the builder
+**Then** no AI analysis is performed, no warnings shown, health badges hidden
+
+---
+
+**Given** the flag is ON
+**When** I edit questions
+**Then** all coaching features (15.1-15.3) are active
+
+═══════════════════════════════════════════════════════════════════════════════
+
+## Epic 16: Insight Mining (Themes + Sentiment + Quality)
+
+**Goal**: Cross-response pattern mining. Beyond per-response tagging (Story 5.3), the system identifies recurring themes across all responses to a question, classifies sentiment, and filters low-quality responses.
+
+**FRs covered**: FR16.1-16.5 (themes, sentiment, quality, filtering, flag).
+
+### Story 16.1: Automated themes per question
+
+As a Member with 50+ open-text responses,
+I want AI to extract 3-7 recurring themes from all responses to a single question,
+So that I understand patterns in 30s instead of 30min of reading.
+
+**Acceptance Criteria:**
+
+**Given** I'm viewing a question's response summary in the dashboard
+**When** I click "Extract themes"
+**Then** AI returns 3-7 themes with: theme name (1-3 words), description, % of responses matching, 2-3 representative quotes
+
+---
+
+**Given** themes are extracted
+**When** I see them
+**Then** each theme card has a "Show all matching responses" link that filters the response list to that theme
+
+---
+
+**Given** the question type doesn't support themes (e.g. likert, rating)
+**When** I view the summary
+**Then** the "Extract themes" option is hidden
+
+### Story 16.2: Sentiment classification per response
+
+As a Member,
+I want each open-text response automatically classified as positive / negative / neutral / mixed,
+So that I can filter and prioritize my analysis.
+
+**Acceptance Criteria:**
+
+**Given** a new text response is saved
+**When** processed (background, fire-and-forget like auto-tag)
+**Then** a `sentiment` field is set on the response with value in {positive, negative, neutral, mixed} + confidence (0-1)
+
+---
+
+**Given** I'm viewing the response list for a question
+**When** the page renders
+**Then** each response card displays a small sentiment indicator (color dot or emoji)
+
+---
+
+**Given** sentiment classification is off (flag)
+**When** new responses are saved
+**Then** no AI call is made (sentiment field stays null)
+
+### Story 16.3: Quality metrics on responses
+
+As a Member who wants to clean my dataset,
+I want AI to flag low-effort / spam / AI-generated responses,
+So that I can exclude them from my findings.
+
+**Acceptance Criteria:**
+
+**Given** a new text response is saved
+**When** processed
+**Then** a `quality_score` (0-100) and `quality_flags` (e.g. ["too_short", "repetitive", "likely_ai"]) are set on the response
+
+---
+
+**Given** I'm reviewing responses
+**When** quality_score < 40
+**Then** the response card shows a warning "Low quality — possible reasons: too short, repetitive" and the response is excluded by default from theme extraction (toggleable)
+
+### Story 16.4: Theme + sentiment filtering in dashboard
+
+As a Member exploring my data,
+I want to filter the response list by theme AND/OR sentiment AND/OR quality,
+So that I drill into specific subsets.
+
+**Acceptance Criteria:**
+
+**Given** themes and sentiment exist on responses
+**When** I open the response list filter
+**Then** I see filter chips for: themes (multi-select), sentiment (multi-select), quality (≥X threshold), tags (existing)
+
+---
+
+**Given** filters are applied
+**When** the list renders
+**Then** the response count updates live, and filters can be combined (AND semantics)
+
+### Story 16.5: Feature flag `NEXT_PUBLIC_AI_INSIGHT_MINING`
+
+As the team,
+I want a single flag to gate themes + sentiment + quality features,
+So that we can roll out progressively.
+
+**Acceptance Criteria:**
+
+**Given** flag is OFF (default)
+**When** I view a question summary or response list
+**Then** "Extract themes", sentiment indicators, and quality flags are all hidden; no background AI runs
+
+---
+
+**Given** flag is ON
+**When** I view
+**Then** all insight mining features (16.1-16.4) are active
+
+═══════════════════════════════════════════════════════════════════════════════
+
+## Epic 17: Advanced Research Methods
+
+**Goal**: Add Tree Testing + Copy Testing + Mobile-first testing — methods Maze supports and Soleo doesn't yet.
+
+**FRs covered**: FR17.1-17.7 (tree test block + analytics, copy test block + analytics, mobile mode + replay, flags).
+
+### Story 17.1: Tree Testing block
+
+As a Member doing IA research,
+I want a Tree Testing block where I define a hierarchy and ask participants to find specific items,
+So that I can validate my information architecture.
+
+**Acceptance Criteria:**
+
+**Given** I add a Tree Testing block in the builder
+**When** I open the ConfigPanel
+**Then** I see fields: task prompt ("Find where to update your email"), hierarchical tree editor (drag-drop or text outline), expected correct path
+
+---
+
+**Given** I publish the session
+**When** a participant reaches this block
+**Then** they see the task prompt + an interactive tree (clickable nodes); their path is recorded
+
+### Story 17.2: Tree Testing analytics
+
+As a Member reviewing tree test results,
+I want analytics specific to IA testing,
+So that I know what % found the right item, how long it took, and which wrong paths were taken.
+
+**Acceptance Criteria:**
+
+**Given** participants have completed a tree test
+**When** I view the block summary
+**Then** I see: success rate (% on correct path), median time to find, most common wrong paths (top 5), abandon rate
+
+---
+
+**Given** a wrong path was taken N times
+**When** I click it
+**Then** I see the participants who took it + drill into their full session
+
+### Story 17.3: Copy Testing block
+
+As a Member testing copy variants,
+I want a Copy Testing block where I define multiple text variants and participants vote / rate,
+So that I can A/B test microcopy.
+
+**Acceptance Criteria:**
+
+**Given** I add a Copy Testing block
+**When** I open the ConfigPanel
+**Then** I can define a question + 2-5 text variants (e.g. button labels, headlines); choose mode = "Preference" (pick 1) or "Rating" (rate each on 1-5)
+
+---
+
+**Given** the session runs
+**When** a participant reaches the block
+**Then** they see the variants and select / rate per the configured mode
+
+### Story 17.4: Copy Testing analytics
+
+As a Member reviewing copy test results,
+I want to see the winning variant + confidence interval,
+So that I know if the winner is statistically significant.
+
+**Acceptance Criteria:**
+
+**Given** N participants have responded
+**When** I view results
+**Then** I see: % votes per variant (Preference mode) or mean rating per variant (Rating mode), Wilson confidence interval, and a "Winner" indicator only if margin is statistically significant (p<0.05 with N≥30)
+
+### Story 17.5: Mobile-first testing dedicated mode
+
+As a Member testing mobile prototypes,
+I want a "Mobile" mode in `live_site_task` and `prototype_task` that forces vertical orientation + simulated mobile chrome,
+So that I get accurate mobile UX data even when participants are on desktop.
+
+**Acceptance Criteria:**
+
+**Given** I configure a prototype block with mode=mobile
+**When** the participant reaches it
+**Then** the iframe is constrained to 375×667 (or selectable common sizes), shown with a phone chrome decoration, in vertical orientation
+
+---
+
+**Given** the participant is on a real mobile device
+**When** the block renders
+**Then** the chrome decoration is hidden; the iframe takes full screen
+
+### Story 17.6: Mobile replay viewer
+
+As a Member reviewing mobile prototype sessions,
+I want the rrweb replay to respect portrait orientation,
+So that the replay matches what the participant actually saw.
+
+**Acceptance Criteria:**
+
+**Given** a session was recorded in mobile mode
+**When** I open the replay viewer in the dashboard
+**Then** the player canvas is sized to mobile (375×667 or recorded viewport), with optional zoom controls
+
+### Story 17.7: Feature flags `NEXT_PUBLIC_TREE_TESTING` + `NEXT_PUBLIC_COPY_TESTING`
+
+As the team,
+I want independent flags for tree and copy testing,
+So that we can ship them separately.
+
+**Acceptance Criteria:**
+
+**Given** `NEXT_PUBLIC_TREE_TESTING=false`
+**When** I'm in the builder
+**Then** the Tree Testing block doesn't appear in the palette
+
+---
+
+**Given** `NEXT_PUBLIC_COPY_TESTING=false`
+**When** I'm in the builder
+**Then** the Copy Testing block doesn't appear in the palette
+
+---
+
+**Given** flags are ON
+**When** in builder
+**Then** both blocks appear and function
+
+═══════════════════════════════════════════════════════════════════════════════
+
+## Story 10.6: Trust & AI Transparency Page (extension Epic 10)
+
+As a potential customer evaluating Soleo,
+I want a dedicated `/trust` page explaining what AI sees, what's stored, where data lives, and how privacy is enforced,
+So that I can validate Soleo's posture before signing up — especially for enterprise / GDPR-sensitive use cases.
+
+**Acceptance Criteria:**
+
+**Given** I visit `/trust` (or `/fr/trust` / `/en/trust`)
+**When** the page renders
+**Then** I see sections: "AI Providers" (OpenAI, optional Anthropic, optional Gemini), "What we don't do" (no model training on your data, no cross-account data sharing), "Where your data lives" (EU Supabase, encrypted at rest), "Your AI cost" (link to /dashboard/general usage UI), "Compliance" (RGPD posture, retention, deletion rights)
+
+---
+
+**Given** I'm on /trust
+**When** I look for a link from the landing page
+**Then** the footer links to /trust under "Sécurité" or "Trust"
+
+---
+
+**Given** /trust is requested
+**When** rendered
+**Then** SEO metadata is present (title, OG, description), Lighthouse SEO score ≥95
+
+═══════════════════════════════════════════════════════════════════════════════
+
+## Epic 18: Integrations (Innovations — Future)
+
+**Status**: All stories tagged `Innovation` in Notion (not in MVP roadmap). Picked when user demand surfaces post-launch.
+
+**Goal**: Connect Soleo to the rest of a researcher's stack (Slack, Notion, Zoom, API).
+
+### Story 18.1: Slack integration — notifications + share findings
+
+As a Member with a team in Slack,
+I want Soleo to notify a configured channel when key events happen + allow sharing findings to Slack,
+So that my team stays in the loop without manual cross-posting.
+
+**Acceptance Criteria:**
+
+**Given** I configure a Slack workspace + channel in Settings → Integrations
+**When** a session is published, a participant completes a session, or a finding is published
+**Then** a Slack message is sent to the channel with a link to the relevant Soleo page
+
+---
+
+**Given** I click "Share to Slack" on a published finding
+**When** I pick a channel
+**Then** the finding's preview (title + first paragraph + link) is posted to Slack
+
+### Story 18.2: Notion export — findings → Notion page
+
+As a Member who uses Notion for docs,
+I want a one-click export of a published finding to a Notion page,
+So that the finding lives natively in my team's knowledge base.
+
+**Acceptance Criteria:**
+
+**Given** I connect my Notion workspace via OAuth (Settings → Integrations)
+**When** I click "Export to Notion" on a finding
+**Then** I pick a parent page, and a new Notion page is created with the full finding content (citations remain as Notion mentions/blocks)
+
+### Story 18.3: Zoom integration — synchronous moderated interviews
+
+As a Member who wants to combine async Soleo studies with live interviews,
+I want to schedule a Zoom call from inside Soleo and link the recording to a participant's session,
+So that I keep all my research data in one place.
+
+**Acceptance Criteria:**
+
+**Given** I connect my Zoom account via OAuth
+**When** I schedule a "Live interview" from a participant's profile
+**Then** a Zoom meeting is created, link saved on the participant session, and recording (if enabled) is auto-attached to the finding
+
+### Story 18.4: Public API + Webhooks
+
+As a developer or power-user,
+I want a public REST API + webhook events,
+So that I can build Zapier integrations, custom dashboards, etc.
+
+**Acceptance Criteria:**
+
+**Given** I generate an API key in Settings
+**When** I call `GET /api/v1/projects` with the key
+**Then** I receive a JSON list of my projects, rate-limited per plan
+
+---
+
+**Given** I configure a webhook URL for `finding.published` event
+**When** a finding is published
+**Then** my webhook receives a POST with the finding payload (signed with HMAC)
+
+═══════════════════════════════════════════════════════════════════════════════
+
 ## Summary
 
-- **5 Epics**, all standalone
-- **39 Stories** total (Epic 11: 6, Epic 10: 5, Epic 8: 8, Epic 12: 9, Epic 13: 11)
-- **49 FRs + 15 NFRs + 17 UX-DRs** all covered (per FR Coverage Map)
-- **0 cross-story dependencies within an Epic** — each story can be implemented and tested in isolation given the previous stories of its Epic are done
-- **Cross-Epic dependencies** are soft — none of the Epics is blocked by another
+- **10 Epics** formally backlogged + Epic 9 rolling (total 11)
+- **67 Stories** total (Epic 11: 6, Epic 10: 5+1, Epic 8: 8, Epic 12: 9, Epic 13: 11, Epic 14: 6, Epic 15: 4, Epic 16: 5, Epic 17: 7, Epic 18: 4) + Epic 9 rolling (~9 stories done/backlog)
+- **Maze AI parity** : Soleo's roadmap now covers all major Maze AI 2026 features + retains its own differentiators (public findings, AI usage transparency, EU-first)
+- **Differentiators** : EU privacy, transparent AI usage tracking, public shareable findings with citations, single-tier Pro pricing simplicity
+- **Effort estimate** : Solo dev pace, ~6-8 months to ship the full MVP-beta track (Epics 11→17), then beta validation, then Pro launch (Epic 10+8), then Innovations (Epic 18 on demand)

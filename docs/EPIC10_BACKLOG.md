@@ -11,6 +11,7 @@ Source de vérité : Notion → Epic 10 — Public Landing Page. BMAD doc : `_bm
 | 10.3 | Use-cases section + inline pricing summary             | Medium   | ⏳ To Do  |
 | 10.4 | FAQ accordion + Footer                                 | Medium   | ⏳ To Do  |
 | 10.5 | SEO metadata + sitemap + OG image                      | Medium   | ⏳ To Do  |
+| 10.6 | Trust & AI Transparency page (`/trust`)                | Medium   | ⏳ To Do  |
 
 **Order** : 10.1 (route foundation) → 10.2 → 10.3 → 10.4 → 10.5 (SEO en dernier après tout le contenu).
 
@@ -165,3 +166,32 @@ Source de vérité : Notion → Epic 10 — Public Landing Page. BMAD doc : `_bm
 - Next.js `metadata` API + `generateMetadata` per page
 - `app/sitemap.ts` + `app/robots.ts` (Next.js conventions)
 - OG image : statique en `public/og.png` ou dynamique via `next/og`
+
+---
+
+## Story 10.6 — Trust & AI Transparency page (`/trust`)
+
+> As a potential customer evaluating Soleo, I want a dedicated `/trust` page explaining what AI sees, what's stored, where data lives, and how privacy is enforced, so that I can validate Soleo's posture before signing up — especially for enterprise / GDPR-sensitive use cases.
+
+### Acceptance Criteria
+
+**Given** I visit `/trust` (or `/fr/trust` / `/en/trust`)
+**When** the page renders
+**Then** I see sections: "AI Providers" (OpenAI, optional Anthropic, optional Gemini), "What we don't do" (no model training on your data, no cross-account data sharing), "Where your data lives" (EU Supabase, encrypted at rest), "Your AI cost" (link to /dashboard/general usage UI), "Compliance" (RGPD posture, retention, deletion rights)
+
+---
+
+**Given** I'm on /trust
+**When** I look for a link from the landing page
+**Then** the footer links to /trust under "Sécurité" or "Trust"
+
+---
+
+**Given** /trust is requested
+**When** rendered
+**Then** SEO metadata is present (title, OG, description), Lighthouse SEO score ≥95
+
+### Implementation notes
+- Static MDX page in `app/[locale]/trust/page.mdx`
+- Inspired by https://www.posthog.com/handbook/company/trust or similar
+- Differentiator messaging : EU privacy, AI cost transparency, no opaque tracking
