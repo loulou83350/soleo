@@ -12,6 +12,8 @@ Source de vérité : Notion `Soleo — Project Tracker` → database "Stories" �
 | 9.2 | Visual prototype timeline in the response detail                 | Medium   | ✅ Done   | Story 5.2    |
 | 9.3 | Unit tests for AI helpers (followup, usage, repos)               | Low      | ✅ Done   | Epic 7       |
 | 9.4 | Graceful fallback if Figma iframe fails to load                  | Low      | 🟡 Backlog | Story 4.x   |
+| 9.5 | Adopt Obra design tokens (font, accent, foreground, typo scale)  | High     | 🟡 Backlog | Audit doc   |
+| 9.6 | Migrate icon library from lucide-react to Solar Icons (Linear)   | Medium   | 🟡 Backlog | Audit doc   |
 
 ---
 
@@ -165,3 +167,106 @@ Le code (`app/s/[token]/ParticipantBlock.tsx:534-535`) strippe déjà les sessio
 ### Hors-scope
 - Pas de retry automatique de l'iframe (l'utilisateur fait l'action manuellement)
 - Pas de détection navigateur (Arc / Chrome / etc.) — message générique
+
+---
+
+## Story 9.5 — Adopt Obra design tokens (font, accent, foreground, typo scale)
+
+### User story
+> As a user, I want Soleo's visual identity to feel more crafted and distinct from a generic shadcn baseline, so that the product reads as a polished, branded research tool rather than a starter template.
+
+### Contexte
+Audit complet livré dans [`docs/DESIGN_TOKENS_AUDIT.md`](./DESIGN_TOKENS_AUDIT.md). Diff principal :
+- Font : Inter → Satoshi Variable (sans) + Geist Mono (mono)
+- `--foreground` : `#171717` → `#0A0A0A`
+- `--accent` : `#F5F5F5` (gris) → `#D5E1FF` (blue-100 Obra brand)
+- Typography scale : adopter h1-h4 weight Medium (vs Bold actuel), paragraph large/regular/small/mini × regular/medium/bold + caption
+- `tag-feature` aligné sur l'accent Obra
+
+### Acceptance Criteria
+
+**Given** the site loads
+**When** any text renders
+**Then** the font is Satoshi Variable (body) or Geist Mono (code), no Inter usage remains
+
+---
+
+**Given** I view any screen
+**When** I look at headings
+**Then** they use weight Medium (500), not Bold (700), with the line-height + letter-spacing specified in the audit doc
+
+---
+
+**Given** I hover a ghost / secondary button or focus a list item
+**When** the accent state activates
+**Then** the background is `#D5E1FF` (blue tint), not the previous gray `#F5F5F5`
+
+---
+
+**Given** the font fails to load (CDN down)
+**When** a fallback kicks in
+**Then** Inter → system-ui chain renders the page (no FOIT, FOUT acceptable)
+
+### Implémentation
+1. Vérifier licence Satoshi (Fontshare)
+2. Self-host via `next/font/local` ou Fontshare `<link>` dans `app/layout.tsx`
+3. Update `app/globals.css` (lignes 81 + 171-227) : font-family, `--foreground`, `--accent`, `--accent-foreground`, `tag-feature-*`
+4. Créer `@layer components` avec classes `.text-heading-1` à `.text-heading-4`, `.text-paragraph-*-{regular,medium,bold}`, `.text-caption`
+5. Smoke test visuel sur 5 écrans (dashboard / project / builder / findings / participant)
+
+### Hors-scope
+- Composants au-delà des tokens (Button, Card, etc.) — story future si nécessaire
+- Dark mode (Soleo affiche light only)
+- Refactor des `font-bold` existants vers les nouvelles classes — fait progressivement, pas en une story
+
+---
+
+## Story 9.6 — Migrate icon library from lucide-react to Solar Icons (Linear)
+
+### User story
+> As a designer / product owner, I want Soleo to use Solar Icons (Linear variant) consistently across the UI instead of lucide-react, so that the iconography matches the new visual identity and feels more distinctive.
+
+### Contexte
+Plan complet livré dans [`docs/ICON_MIGRATION_PLAN.md`](./ICON_MIGRATION_PLAN.md). 47 fichiers, 51 icônes uniques. Pack : `solar-icon-set`. Variant : `Linear`.
+
+### Acceptance Criteria
+
+**Given** the codebase
+**When** I run `grep -r "lucide-react" --include="*.tsx" --include="*.ts"`
+**Then** 0 matches remain (after migration), and `package.json` does not list `lucide-react` as a dependency
+
+---
+
+**Given** any screen renders
+**When** an icon appears
+**Then** it's a Solar Icons Linear variant, rendered via the wrapper `<Icon name="..."/>` from `components/ui/icon.tsx`
+
+---
+
+**Given** `Loader2` was used for spinners (13 occurrences)
+**When** a spinner renders
+**Then** it spins (CSS `animate-spin` on Solar `LoadingMinimalistic`)
+
+---
+
+**Given** an icon has no direct Solar equivalent
+**When** I encounter the gap
+**Then** I document the substitution in `docs/ICON_MIGRATION_PLAN.md` section 4 and pick the closest Solar icon
+
+---
+
+**Given** the migration is complete
+**When** I check `/trust` page or footer
+**Then** attribution "Icons by Solar Icons — CC BY 4.0" is present
+
+### Implémentation
+1. `pnpm add solar-icon-set ; pnpm remove lucide-react`
+2. Create `components/ui/icon.tsx` wrapper with central `ICON_MAP`
+3. Replace all imports + JSX across 47 files (regex-assisted)
+4. Add Solar attribution to `/trust` or footer
+5. Smoke test : `pnpm dev` + click around all screens
+
+### Hors-scope
+- Animations custom icônes (Solar est statique, animation = CSS)
+- Custom Soleo brand icons (logo) — non concernés
+- Migration progressive file-by-file — on fait tout d'un coup pour éviter état mixte
