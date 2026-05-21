@@ -62,6 +62,7 @@ Migrations effectivement appliquées sur le nouveau projet via MCP
 | 0008 | `enable_rls_all_tables` | RLS enabled sur 17 tables (sécurité critique — bloque l'accès via anon key publique) | advisor recommendation |
 | 0009 | `teams_figma_columns` | + figma_access_token, figma_refresh_token, figma_token_expires_at sur teams | drift discovery |
 | 0010 | `missing_unique_constraints` | UNIQUE(participant_session_id, block_id) sur block_responses + UNIQUE(response_id, tag_id) sur block_response_tags | drift discovery — required for ON CONFLICT upserts in lib/repositories |
+| 0011 | `revoke_anon_authenticated` | REVOKE ALL on tables/sequences/functions du schéma public from anon + authenticated. ALTER DEFAULT PRIVILEGES pour les futures tables. Defense in depth : Soleo n'utilise pas Supabase Auth donc ces rôles n'ont aucune utilité applicative. Aucun impact app (passe par POSTGRES_URL/postgres role). | hardening pré-beta |
 
 État final : 17 tables alignées avec `schema.ts`. RLS activé partout,
 aucun ERROR dans les advisors. INFOs "RLS enabled no policy" attendus :
@@ -92,6 +93,39 @@ fichiers SQL en `lib/db/migrations/` sont obsolètes.
 sélectionne toutes les colonnes via Drizzle).
 
 **Fix** : migration 0009 — ajout des 3 colonnes Figma OAuth.
+
+### Hardening — REVOKE anon + authenticated GRANTs (migration 0011)
+
+**Contexte** : audit sécurité post-beta launch. Soleo n'utilise PAS Supabase
+Auth (système maison bcrypt+JWT). Les rôles `anon` (clé publique exposée
+dans `NEXT_PUBLIC_SUPABASE_ANON_KEY`) et `authenticated` ont des GRANT par
+défaut SELECT/INSERT/UPDATE/DELETE sur les 17 tables `public.*`.
+
+**Risque résiduel évité** : RLS bloque tout pour anon aujourd'hui, mais
+si quelqu'un désactive RLS sur une table (debug, refactor, migration auto),
+la clé anon publique permet immédiatement un CRUD complet via l'API REST
+PostgREST. Defense-in-depth fragile.
+
+**Fix** : migration 0011 — REVOKE ALL sur les 17 tables existantes pour
+anon + authenticated + ALTER DEFAULT PRIVILEGES pour que toute table créée
+future inherit la posture (e.g. Epic 13 `live_site_*` tables).
+
+**Vérification post-fix** :
+- `service_role` garde 119 grants (7 privs × 17 tables) — utilisé par
+  `lib/supabase/storage.ts` pour les futurs buckets
+- `postgres` role intact — utilisé via POSTGRES_URL par Drizzle ORM
+- anon : 0 grants
+- authenticated : 0 grants
+- `get_advisors security` : 0 ERROR, INFO "rls_enabled_no_policy" only
+
+**Impact app** : zéro. Soleo connecte à la DB via POSTGRES_URL avec le
+rôle `postgres` (full superuser-équivalent) qui n'est jamais affecté par
+les GRANTs anon/authenticated.
+
+**Rollback (jamais nécessaire en pratique)** :
+```sql
+GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated;
+```
 
 ### Bug 4 — Réponses participants jamais sauvegardées
 
