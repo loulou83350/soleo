@@ -2,6 +2,10 @@ import { Suspense } from 'react';
 import { listProjectsAction } from './projects/actions';
 import { ProjectsClient } from './projects/projects-client';
 
+// Force fresh data on every navigation — RSC cache was serving stale
+// project lists when navigating between dashboard tabs (Members -> Projects).
+export const dynamic = 'force-dynamic';
+
 export default async function DashboardPage() {
   const result = await listProjectsAction();
   const projects = result.success ? result.data : [];

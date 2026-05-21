@@ -8,6 +8,7 @@ import {
   createProject as createProjectRepo,
   deleteProject as deleteProjectRepo,
   getProjectById,
+  type ProjectWithSessionCount,
 } from '@/lib/repositories/projects';
 import {
   CreateProjectSchema,
@@ -21,7 +22,7 @@ import { logger } from '@/lib/logger';
  * Récupère tous les projets du workspace de l'utilisateur connecté.
  */
 export async function listProjectsAction(): Promise<
-  ActionResult<Project[]>
+  ActionResult<ProjectWithSessionCount[]>
 > {
   try {
     const user = await getUser();

@@ -1,18 +1,33 @@
 import 'server-only';
-import { eq, and, desc } from 'drizzle-orm';
+import { eq, and, desc, sql } from 'drizzle-orm';
 import { db } from '@/lib/db/drizzle';
-import { projects, type Project, type NewProject } from '@/lib/db/schema';
+import { projects, sessions, type Project, type NewProject } from '@/lib/db/schema';
+
+export type ProjectWithSessionCount = Project & { sessionCount: number };
 
 /**
- * Récupère tous les projets d'un workspace (teamId).
+ * Récupère tous les projets d'un workspace (teamId) avec le nombre de sessions.
  * Toujours filtré par teamId — AC6 : pas d'accès cross-workspace.
  */
-export async function getProjectsByTeam(teamId: number): Promise<Project[]> {
-  return db
-    .select()
+export async function getProjectsByTeam(
+  teamId: number
+): Promise<ProjectWithSessionCount[]> {
+  const rows = await db
+    .select({
+      id: projects.id,
+      teamId: projects.teamId,
+      name: projects.name,
+      createdAt: projects.createdAt,
+      updatedAt: projects.updatedAt,
+      sessionCount: sql<number>`count(${sessions.id})::int`,
+    })
     .from(projects)
+    .leftJoin(sessions, eq(sessions.projectId, projects.id))
     .where(eq(projects.teamId, teamId))
+    .groupBy(projects.id)
     .orderBy(desc(projects.createdAt));
+
+  return rows;
 }
 
 /**

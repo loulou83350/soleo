@@ -9,10 +9,11 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { createProjectAction, deleteProjectAction } from './actions';
 import type { Project } from '@/lib/db/schema';
+import type { ProjectWithSessionCount } from '@/lib/repositories/projects';
 import { track } from '@/lib/analytics/track';
 
 interface ProjectsClientProps {
-  initialProjects: Project[];
+  initialProjects: ProjectWithSessionCount[];
 }
 
 // ─── Dialog de création ──────────────────────────────────────────────────────
@@ -208,12 +209,13 @@ function DeleteProjectDialog({
 
 export function ProjectsClient({ initialProjects }: ProjectsClientProps) {
   const router = useRouter();
-  const [projects, setProjects] = useState<Project[]>(initialProjects);
+  const [projects, setProjects] = useState<ProjectWithSessionCount[]>(initialProjects);
   const [createOpen, setCreateOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Project | null>(null);
 
   function handleCreated(project: Project) {
-    setProjects((prev) => [project, ...prev]);
+    // Newly created projects have 0 sessions by definition
+    setProjects((prev) => [{ ...project, sessionCount: 0 }, ...prev]);
   }
 
   function handleDeleted(id: number) {
@@ -274,7 +276,7 @@ export function ProjectsClient({ initialProjects }: ProjectsClientProps) {
                     {project.name}
                   </p>
                   <p className="text-xs text-muted-foreground mt-0.5">
-                    0 session · Créé le{' '}
+                    {project.sessionCount ?? 0} session{(project.sessionCount ?? 0) > 1 ? 's' : ''} · Créé le{' '}
                     {new Date(project.createdAt).toLocaleDateString('fr-FR', {
                       day: 'numeric',
                       month: 'long',
