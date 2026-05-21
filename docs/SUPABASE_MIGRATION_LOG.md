@@ -61,6 +61,7 @@ Migrations effectivement appliquées sur le nouveau projet via MCP
 | 0007 | `sessions_full_schema` | Toutes les tables manquantes : sessions (with gate cols), session_blocks (with sessionId FK direct vers sessions), participant_sessions, block_responses, consent_records, insight_tags, block_response_tags, session_findings, finding_highlights, ai_usage_logs, ai_followup_turns | depuis `schema.ts` |
 | 0008 | `enable_rls_all_tables` | RLS enabled sur 17 tables (sécurité critique — bloque l'accès via anon key publique) | advisor recommendation |
 | 0009 | `teams_figma_columns` | + figma_access_token, figma_refresh_token, figma_token_expires_at sur teams | drift discovery |
+| 0010 | `missing_unique_constraints` | UNIQUE(participant_session_id, block_id) sur block_responses + UNIQUE(response_id, tag_id) sur block_response_tags | drift discovery — required for ON CONFLICT upserts in lib/repositories |
 
 État final : 17 tables alignées avec `schema.ts`. RLS activé partout,
 aucun ERROR dans les advisors. INFOs "RLS enabled no policy" attendus :
@@ -91,6 +92,28 @@ fichiers SQL en `lib/db/migrations/` sont obsolètes.
 sélectionne toutes les colonnes via Drizzle).
 
 **Fix** : migration 0009 — ajout des 3 colonnes Figma OAuth.
+
+### Bug 4 — Réponses participants jamais sauvegardées
+
+**Symptôme** : participants remplissent les questions sans erreur visible,
+mais le dashboard affiche zéro réponse. `block_responses` vide alors que
+`participant_sessions` a 2 lignes.
+
+**Cause** : `lib/repositories/participant-sessions.ts:upsertBlockResponse`
+fait `INSERT ... ON CONFLICT (participant_session_id, block_id) DO UPDATE`,
+qui nécessite une UNIQUE constraint sur ces 2 colonnes. La contrainte
+existait en prod (appliquée ad-hoc via psql) mais ne figure ni dans
+schema.ts ni dans les fichiers de migration. Même problème sur
+`block_response_tags.unique(response_id, tag_id)`.
+
+Postgres logs : "there is no unique or exclusion constraint matching the
+ON CONFLICT specification".
+
+**Fix** : migration 0010 — ajout des 2 UNIQUE constraints manquantes.
+
+**Fix permanent suggéré** : ajouter `.unique()` au niveau Drizzle dans
+schema.ts (ligne ~284 pour block_responses, ligne ~361 pour
+block_response_tags). Sinon le drift se reproduira au prochain reset.
 
 ### Bug 2 — Utilisateur orphelin sans team
 
